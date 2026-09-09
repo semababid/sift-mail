@@ -10,7 +10,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    // Never leaves the database on a normal query. Auth loads it explicitly.
+    // The hash stays out of every normal query. Auth asks for it explicitly.
     passwordHash: { type: String, required: true, select: false },
     name: { type: String, required: true, trim: true },
     settings: {

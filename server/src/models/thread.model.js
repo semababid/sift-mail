@@ -47,7 +47,7 @@ threadSchema.index({ userId: 1, folders: 1, lastMessageAt: -1 });
 // Same list filtered to one label.
 threadSchema.index({ userId: 1, labelIds: 1, lastMessageAt: -1 });
 
-// Stage 4 threading fallback, for mail that arrives with no References header.
+// The subject fallback above, used when grouping an incoming message.
 threadSchema.index({ userId: 1, normalizedSubject: 1, lastMessageAt: -1 });
 
 threadSchema.plugin(toJSON);
