@@ -13,10 +13,10 @@ I checked this machine. Most of it is already there.
 
 ## Missing, and needed
 
-**Node 22.** Not installed at all, so nothing in this project runs yet.
+**Node 24.** Not installed at all, so nothing in this project runs yet.
 
 ```bash
-brew install node@22
+brew install node@24
 ```
 
 **An embedding model.** You have a chat model but no embedder, and stage 5 cannot start without one. Small download, 274 MB.
