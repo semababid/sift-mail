@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import * as authService from '../services/auth.service.js';
 import { User } from '../models/index.js';
 import {
@@ -8,31 +7,11 @@ import {
   revokeFamily,
 } from '../services/token.service.js';
 import { setAuthCookies, clearAuthCookies, REFRESH_COOKIE } from '../lib/cookies.js';
-import { badRequest, unauthorized } from '../lib/errors.js';
+import { unauthorized } from '../lib/errors.js';
 
-const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(10, 'password must be at least 10 characters'),
-  name: z.string().min(1).max(80),
-});
-
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
-
-function parse(schema, body) {
-  const result = schema.safeParse(body);
-  if (!result.success) {
-    const err = badRequest('validation failed', 'invalid_body');
-    err.fields = Object.fromEntries(
-      result.error.issues.map((i) => [i.path.join('.'), i.message]),
-    );
-    throw err;
-  }
-  return result.data;
-}
-
+// Express 5 forwards a rejected promise to the error handler on its own, so
+// these do not need to wrap themselves in try/catch. The one exception is
+// refresh, which has cleanup to do before the error moves on.
 async function startSession(res, user, req, family) {
   const refreshToken = await issueRefreshToken(user._id, {
     family,
@@ -41,26 +20,16 @@ async function startSession(res, user, req, family) {
   setAuthCookies(res, { accessToken: signAccessToken(user), refreshToken });
 }
 
-export async function register(req, res, next) {
-  try {
-    const body = parse(registerSchema, req.body);
-    const user = await authService.register(body);
-    await startSession(res, user, req);
-    res.status(201).json({ user: user.toJSON() });
-  } catch (err) {
-    next(err);
-  }
+export async function register(req, res) {
+  const user = await authService.register(req.valid.body);
+  await startSession(res, user, req);
+  res.status(201).json({ user: user.toJSON() });
 }
 
-export async function login(req, res, next) {
-  try {
-    const body = parse(loginSchema, req.body);
-    const user = await authService.login(body);
-    await startSession(res, user, req);
-    res.json({ user: user.toJSON() });
-  } catch (err) {
-    next(err);
-  }
+export async function login(req, res) {
+  const user = await authService.login(req.valid.body);
+  await startSession(res, user, req);
+  res.json({ user: user.toJSON() });
 }
 
 export async function refresh(req, res, next) {
@@ -75,23 +44,21 @@ export async function refresh(req, res, next) {
     await startSession(res, user, req, stored.family);
     res.json({ user: user.toJSON() });
   } catch (err) {
+    // A bad or replayed token means the cookies on this browser are worthless.
+    // Clearing them stops the client retrying with the same dead credentials.
     if (err.code === 'refresh_reuse' || err.code === 'bad_refresh_token') clearAuthCookies(res);
     next(err);
   }
 }
 
-export async function logout(req, res, next) {
-  try {
-    const raw = req.cookies?.[REFRESH_COOKIE];
-    if (raw) {
-      const stored = await consumeRefreshToken(raw).catch(() => null);
-      if (stored) await revokeFamily(stored.family);
-    }
-    clearAuthCookies(res);
-    res.status(204).end();
-  } catch (err) {
-    next(err);
+export async function logout(req, res) {
+  const raw = req.cookies?.[REFRESH_COOKIE];
+  if (raw) {
+    const stored = await consumeRefreshToken(raw).catch(() => null);
+    if (stored) await revokeFamily(stored.family);
   }
+  clearAuthCookies(res);
+  res.status(204).end();
 }
 
 export async function me(req, res) {

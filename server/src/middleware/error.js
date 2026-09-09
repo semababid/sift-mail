@@ -1,3 +1,4 @@
+import { ZodError } from 'zod';
 import { HttpError } from '../lib/errors.js';
 import { isProd } from '../config/env.js';
 
@@ -12,6 +13,16 @@ export function errorHandler(err, req, res, next) {
     });
   }
 
+  // A zod error reaching here came from a service rather than the validate
+  // middleware, so give it the same response shape either way.
+  if (err instanceof ZodError) {
+    return res.status(400).json({
+      error: 'validation failed',
+      code: 'invalid_body',
+      fields: Object.fromEntries(err.issues.map((i) => [i.path.join('.'), i.message])),
+    });
+  }
+
   if (err?.code === 11000) {
     return res.status(409).json({ error: 'that already exists', code: 'duplicate' });
   }
@@ -21,6 +32,16 @@ export function errorHandler(err, req, res, next) {
       error: 'validation failed',
       code: 'invalid_body',
       fields: Object.fromEntries(Object.entries(err.errors).map(([k, v]) => [k, v.message])),
+    });
+  }
+
+  // body-parser rejects an unparseable or oversized body with the status
+  // already set. Without this it would surface as a 500 and look like a server
+  // fault rather than a bad request.
+  if (err?.type && Number.isInteger(err.status) && err.status < 500) {
+    return res.status(err.status).json({
+      error: err.type === 'entity.too.large' ? 'request body is too large' : 'request body could not be parsed',
+      code: err.type,
     });
   }
 
