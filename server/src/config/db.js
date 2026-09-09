@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { env } from './env.js';
+import { env, isProd } from './env.js';
 import { logger } from './logger.js';
 
 const MAX_ATTEMPTS = 5;
@@ -11,7 +11,13 @@ export async function connectDb() {
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
-      await mongoose.connect(env.MONGO_URI, { serverSelectionTimeoutMS: 5000 });
+      // Mongoose builds any missing index on every boot. Convenient locally,
+      // dangerous on a populated collection, so production builds them
+      // deliberately through scripts/sync-indexes.js instead.
+      await mongoose.connect(env.MONGO_URI, {
+        serverSelectionTimeoutMS: 5000,
+        autoIndex: !isProd,
+      });
       logger.info({ db: mongoose.connection.name }, 'mongo connected');
       return mongoose.connection;
     } catch (err) {

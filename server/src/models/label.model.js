@@ -10,6 +10,9 @@ const labelSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// One label name per user, and the lookup for the sidebar.
+labelSchema.index({ userId: 1, name: 1 }, { unique: true });
+
 labelSchema.plugin(toJSON);
 
 export const Label = mongoose.model('Label', labelSchema);

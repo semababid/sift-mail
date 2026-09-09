@@ -63,6 +63,38 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// Opening a thread: every message in it, oldest first.
+messageSchema.index({ threadId: 1, sentAt: 1 });
+
+// Message-level folder queries and unread counts.
+messageSchema.index({ userId: 1, folder: 1, sentAt: -1 });
+
+// Keyword search, and the baseline that stage 5 gets compared against. Mongo
+// allows one text index per collection, so subject and body share this one.
+// The userId prefix means a text query has to name a user to use the index,
+// which is the same argument as filtering the vector search by user.
+messageSchema.index(
+  { userId: 1, subject: 'text', bodyText: 'text' },
+  { weights: { subject: 10, bodyText: 1 }, name: 'message_text' },
+);
+
+// Ingest dedupe from stage 4. Partial, because internal mail has no RFC id and
+// a plain unique index would collide on the second null.
+messageSchema.index(
+  { userId: 1, rfcMessageId: 1 },
+  { unique: true, partialFilterExpression: { rfcMessageId: { $type: 'string' } } },
+);
+
+// Stage 5 backfill: find what has not been embedded yet without scanning the
+// whole collection. Only indexes the rows the backfill actually wants.
+messageSchema.index(
+  { userId: 1, sentAt: -1 },
+  { partialFilterExpression: { embeddedAt: null }, name: 'message_unembedded' },
+);
+
+// Stage 6 bucket tabs.
+messageSchema.index({ userId: 1, 'intent.label': 1, sentAt: -1 });
+
 messageSchema.plugin(toJSON);
 
 export const Message = mongoose.model('Message', messageSchema);

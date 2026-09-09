@@ -38,6 +38,18 @@ const threadSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// Index order follows equality, then sort. userId is on every query because a
+// thread lookup that is not scoped to one user is a bug.
+
+// The folder list: find({ userId, folders }).sort({ lastMessageAt: -1 }).
+threadSchema.index({ userId: 1, folders: 1, lastMessageAt: -1 });
+
+// Same list filtered to one label.
+threadSchema.index({ userId: 1, labelIds: 1, lastMessageAt: -1 });
+
+// Stage 4 threading fallback, for mail that arrives with no References header.
+threadSchema.index({ userId: 1, normalizedSubject: 1, lastMessageAt: -1 });
+
 threadSchema.plugin(toJSON);
 
 export const Thread = mongoose.model('Thread', threadSchema);
