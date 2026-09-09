@@ -9,6 +9,7 @@ import { logger } from './config/logger.js';
 import { apiRouter } from './routes/index.js';
 import { errorHandler } from './middleware/error.js';
 import { apiLimiter } from './middleware/rate-limit.js';
+import { originCheck } from './middleware/origin-check.js';
 
 export function createApp() {
   const app = express();
@@ -36,7 +37,7 @@ export function createApp() {
     });
   });
 
-  app.use('/api', apiLimiter, apiRouter);
+  app.use('/api', apiLimiter, originCheck, apiRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: 'not found', code: 'not_found' });

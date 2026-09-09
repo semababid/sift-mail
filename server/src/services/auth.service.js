@@ -16,7 +16,14 @@ export async function register({ email, password, name }) {
   if (existing) throw conflict('an account with that email already exists', 'email_taken');
 
   const passwordHash = await hash(password, ARGON);
-  return User.create({ email, passwordHash, name });
+  try {
+    return await User.create({ email, passwordHash, name });
+  } catch (err) {
+    // Two registrations for the same address at the same moment: the lookup
+    // above passed for both, and the unique index caught the second.
+    if (err.code === 11000) throw conflict('an account with that email already exists', 'email_taken');
+    throw err;
+  }
 }
 
 export async function login({ email, password }) {

@@ -6,20 +6,28 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 config({ path: path.join(root, '.env'), quiet: true });
 
+// The units jsonwebtoken accepts for expiresIn.
+const ttl = z.string().regex(/^\d+[smhd]$/, 'use a number followed by s, m, h or d, like 15m');
+
 // Keys are added to this schema as the stages that need them land, so a missing
 // one fails at boot rather than at the first request that happens to use it.
-const schema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(4000),
-  MONGO_URI: z.string().min(1, 'MONGO_URI is required'),
-  CLIENT_ORIGIN: z.string().url().default('http://localhost:5173'),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+const schema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().positive().default(4000),
+    MONGO_URI: z.string().min(1, 'MONGO_URI is required'),
+    CLIENT_ORIGIN: z.url().default('http://localhost:5173'),
+    LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
-  JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
-  JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
-  ACCESS_TOKEN_TTL: z.string().default('15m'),
-  REFRESH_TOKEN_TTL: z.string().default('30d'),
-});
+    JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
+    JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
+    ACCESS_TOKEN_TTL: ttl.default('15m'),
+    REFRESH_TOKEN_TTL: ttl.default('30d'),
+  })
+  .refine((v) => v.JWT_ACCESS_SECRET !== v.JWT_REFRESH_SECRET, {
+    path: ['JWT_REFRESH_SECRET'],
+    message: 'must differ from JWT_ACCESS_SECRET, or an access token can be used as a refresh token',
+  });
 
 const parsed = schema.safeParse(process.env);
 

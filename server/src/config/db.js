@@ -9,6 +9,10 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export async function connectDb() {
   mongoose.set('strictQuery', true);
 
+  // Mongoose reconnects on its own after a drop. These only make it visible.
+  mongoose.connection.on('disconnected', () => logger.warn('mongo disconnected'));
+  mongoose.connection.on('reconnected', () => logger.info('mongo reconnected'));
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       // Mongoose builds any missing index on every boot. Convenient locally,

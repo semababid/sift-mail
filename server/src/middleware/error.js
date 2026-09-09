@@ -27,6 +27,12 @@ export function errorHandler(err, req, res, next) {
     return res.status(409).json({ error: 'that already exists', code: 'duplicate' });
   }
 
+  // A malformed ObjectId in a route parameter. Nothing with that id can exist,
+  // so answer as though nothing was found rather than as a fault.
+  if (err?.name === 'CastError') {
+    return res.status(404).json({ error: 'not found', code: 'not_found' });
+  }
+
   if (err?.name === 'ValidationError') {
     return res.status(400).json({
       error: 'validation failed',

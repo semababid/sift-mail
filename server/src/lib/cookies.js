@@ -15,8 +15,8 @@ const base = {
 
 export function setAuthCookies(res, { accessToken, refreshToken }) {
   res.cookie(ACCESS_COOKIE, accessToken, { ...base, maxAge: ACCESS_TTL_MS, path: '/' });
-  // Scoped to the one route that reads it, so it is not attached to every
-  // request the client makes.
+  // Scoped to the auth routes, so it is not attached to every request the
+  // client makes.
   res.cookie(REFRESH_COOKIE, refreshToken, {
     ...base,
     maxAge: REFRESH_TTL_MS,
