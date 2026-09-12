@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "indexes": "node scripts/sync-indexes.js"
+    "indexes": "node scripts/sync-indexes.js",
+    "seed": "node scripts/seed.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
