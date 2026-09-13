@@ -41,11 +41,13 @@ const threadSchema = new mongoose.Schema(
 // Index order follows equality, then sort. userId is on every query because a
 // thread lookup that is not scoped to one user is a bug.
 
-// The folder list: find({ userId, folders }).sort({ lastMessageAt: -1 }).
-threadSchema.index({ userId: 1, folders: 1, lastMessageAt: -1 });
+// The folder list: find({ userId, folders }).sort({ lastMessageAt: -1, _id: -1 }).
+// _id is the tiebreak. Threads often share a timestamp to the second, and a
+// cursor on lastMessageAt alone skips or repeats them at a page boundary.
+threadSchema.index({ userId: 1, folders: 1, lastMessageAt: -1, _id: -1 });
 
 // Same list filtered to one label.
-threadSchema.index({ userId: 1, labelIds: 1, lastMessageAt: -1 });
+threadSchema.index({ userId: 1, labelIds: 1, lastMessageAt: -1, _id: -1 });
 
 // The subject fallback above, used when grouping an incoming message.
 threadSchema.index({ userId: 1, normalizedSubject: 1, lastMessageAt: -1 });

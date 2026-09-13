@@ -44,13 +44,26 @@ function summarise(plan) {
 describe.each([
   [
     'folder list',
-    () => Thread.find({ userId, folders: 'inbox' }).sort({ lastMessageAt: -1 }),
-    'userId_1_folders_1_lastMessageAt_-1',
+    () => Thread.find({ userId, folders: 'inbox' }).sort({ lastMessageAt: -1, _id: -1 }),
+    'userId_1_folders_1_lastMessageAt_-1__id_-1',
+  ],
+  [
+    'folder list, second page',
+    () =>
+      Thread.find({
+        userId,
+        folders: 'inbox',
+        $or: [
+          { lastMessageAt: { $lt: new Date() } },
+          { lastMessageAt: new Date(), _id: { $lt: new mongoose.Types.ObjectId() } },
+        ],
+      }).sort({ lastMessageAt: -1, _id: -1 }),
+    'userId_1_folders_1_lastMessageAt_-1__id_-1',
   ],
   [
     'label filter',
-    () => Thread.find({ userId, labelIds: new mongoose.Types.ObjectId() }).sort({ lastMessageAt: -1 }),
-    'userId_1_labelIds_1_lastMessageAt_-1',
+    () => Thread.find({ userId, labelIds: new mongoose.Types.ObjectId() }).sort({ lastMessageAt: -1, _id: -1 }),
+    'userId_1_labelIds_1_lastMessageAt_-1__id_-1',
   ],
   ['opening a thread', () => Message.find({ threadId }).sort({ sentAt: 1 }), 'threadId_1_sentAt_1'],
   ['keyword search', () => Message.find({ userId, $text: { $search: 'kaution' } }), 'message_text'],
