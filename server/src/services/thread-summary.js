@@ -1,4 +1,5 @@
 import { Thread, Message } from '../models/index.js';
+import { normalizeSubject } from '../lib/text.js';
 
 // Rebuilds a thread's stored summary from the messages under it.
 //
@@ -27,10 +28,15 @@ export async function refreshThread(threadId) {
   const basis = real.length > 0 ? real : messages;
   const last = basis.at(-1);
 
+  // One entry per address. A later message can supply a name the first one
+  // lacked, as when a draft addressed someone by address alone and their reply
+  // then arrived with a display name.
   const participants = new Map();
   for (const m of messages) {
     for (const person of [m.from, ...m.to, ...m.cc]) {
-      if (person?.address && !participants.has(person.address)) {
+      if (!person?.address) continue;
+      const known = participants.get(person.address);
+      if (!known || (!known.name && person.name)) {
         participants.set(person.address, { name: person.name, address: person.address });
       }
     }
@@ -40,6 +46,9 @@ export async function refreshThread(threadId) {
     threadId,
     {
       subject: basis[0].subject,
+      // Kept in step with the subject, or a draft whose subject was edited
+      // would leave the thread unfindable by the stage 4 subject fallback.
+      normalizedSubject: normalizeSubject(basis[0].subject),
       messageCount: basis.length,
       lastMessageAt: last.sentAt,
       snippet: last.snippet,

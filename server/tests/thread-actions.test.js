@@ -171,15 +171,30 @@ describe('POST /api/threads/batch', () => {
       expect((await messagesOf(id)).map((m) => m.folder)).toEqual(['sent']);
     });
 
-    it('keeps a half-written reply in drafts when its thread is trashed', async () => {
+    it('takes a half-written reply to trash with its thread, and restores it to drafts', async () => {
       const a = await signIn(app, anna);
       const id = await makeThread(a.user._id, [{ folder: 'inbox' }, { folder: 'drafts', isDraft: true, isRead: true }]);
 
       const res = await act(a, [id], 'trash');
-      expect([...res.body.threads[0].folders].sort()).toEqual(['drafts', 'trash']);
+      expect(res.body.threads[0].folders).toEqual(['trash']);
+      expect(await listed(a, 'drafts')).toEqual([]);
+      await expectInSync(id);
+
+      await act(a, [id], 'restore');
       const draft = (await messagesOf(id)).find((m) => m.isDraft);
       expect(draft.folder).toBe('drafts');
+      expect(await listed(a, 'drafts')).toEqual([String(id)]);
       await expectInSync(id);
+    });
+
+    it('is never a silent no-op on a conversation that is only a draft', async () => {
+      const a = await signIn(app, anna);
+      const id = await makeThread(a.user._id, [{ folder: 'drafts', isDraft: true, isRead: true }]);
+
+      const res = await act(a, [id], 'trash');
+      expect(res.body.threads[0].folders).toEqual(['trash']);
+      expect(await listed(a, 'drafts')).toEqual([]);
+      expect(await listed(a, 'trash')).toEqual([String(id)]);
     });
 
     it('restores a trashed message with no record of where it came from to the inbox', async () => {

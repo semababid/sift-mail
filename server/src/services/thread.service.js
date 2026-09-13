@@ -49,7 +49,7 @@ export async function getThread(userId, threadId) {
   const thread = await Thread.findOne({ _id: threadId, userId });
   if (!thread) throw new HttpError(404, 'thread not found', 'not_found');
 
-  const messages = await Message.find({ threadId: thread._id, userId }).sort({ sentAt: 1 });
+  const messages = await Message.find({ threadId: thread._id, userId }).sort({ sentAt: 1, _id: 1 });
   return { thread, messages };
 }
 
@@ -134,10 +134,12 @@ export async function applyThreadAction(userId, ids, action, { labelId } = {}) {
       await Message.updateMany({ ...inThreads, folder: 'archive' }, { $set: { folder: 'inbox' } });
       break;
     case 'trash':
-      // Drafts stay put so a half-written reply is not lost with the thread.
+      // Drafts go with the conversation, as in Gmail, and come back to drafts
+      // on restore. Leaving them behind made trash a silent no-op on a
+      // conversation that was nothing but a draft.
       // Messages already in trash are skipped: trashing twice would otherwise
       // record "trash" as where they came from, and restore would leave them there.
-      await Message.updateMany({ ...inThreads, isDraft: false, folder: { $ne: 'trash' } }, [
+      await Message.updateMany({ ...inThreads, folder: { $ne: 'trash' } }, [
         { $set: { trashedFrom: '$folder', folder: 'trash' } },
       ]);
       break;

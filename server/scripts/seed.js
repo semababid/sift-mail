@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { parseArgs } from 'node:util';
 import { connectDb, disconnectDb } from '../src/config/db.js';
 import { logger } from '../src/config/logger.js';
-import { User, Thread, Message, Label, RefreshToken } from '../src/models/index.js';
+import { User, Thread, Message, Label, RefreshToken, IntentLabel } from '../src/models/index.js';
 import { register } from '../src/services/auth.service.js';
 import { makeRng } from '../src/lib/random.js';
 import { normalizeSubject, makeSnippet } from '../src/lib/text.js';
@@ -24,8 +24,15 @@ const { values: opts } = parseArgs({
   },
 });
 
-const threadCount = Number(opts.threads);
-const spanDays = Number(opts.days);
+// Refused up front. A count that is not a number used to seed an empty
+// mailbox and exit 0, which a test then read as a mailbox with nothing in it.
+const positiveInt = (name, value) => {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) throw new Error(`--${name} must be a whole number above 0, got ${JSON.stringify(value)}`);
+  return n;
+};
+const threadCount = positiveInt('threads', opts.threads);
+const spanDays = positiveInt('days', opts.days);
 const rng = makeRng(Number(opts.seed));
 const NOW = opts.now ? Date.parse(opts.now) : Date.now();
 if (Number.isNaN(NOW)) throw new Error(`--now is not a date: ${opts.now}`);
@@ -111,7 +118,12 @@ function buildThread({ user, template, sender, labelIds }) {
         source: 'default',
         classifiedAt: null,
       },
-      seedIntent: template.intent,
+      // Only inbound mail is labelled. The bucket says what a message asks of
+      // me, and my own replies ask nothing. For a thread with several inbound
+      // messages this is the thread's overall bucket stamped on each of them,
+      // which is approximate: stage 6.5 refines it into per-message labels
+      // when the eval set is built.
+      seedIntent: fromSender ? template.intent : null,
     };
   });
 
@@ -164,9 +176,10 @@ function fillerTemplate() {
     subject: rng.pick(FILLER_SUBJECTS).replaceAll('{n}', String(n)),
     body: rng.pick(FILLER_BODIES),
     replies: Array.from({ length: depth }, () => rng.pick(FILLER_REPLIES)),
-    // Whoever wrote last decides what the thread is waiting on: an inbound
+    // A lone notification is just to be read. Once there is an exchange,
+    // whoever wrote last decides what the thread is waiting on: an inbound
     // message with no answer from me needs one, my own last word does not.
-    intent: depth % 2 === 0 ? 'needs_reply' : 'waiting_on_them',
+    intent: depth === 0 ? 'read_only' : depth % 2 === 0 ? 'needs_reply' : 'waiting_on_them',
   };
 }
 
@@ -184,6 +197,7 @@ async function main() {
         Thread.deleteMany(filter),
         Label.deleteMany(filter),
         RefreshToken.deleteMany(filter),
+        IntentLabel.deleteMany(filter),
       ]);
       await User.deleteOne({ _id: existing._id });
       logger.info(
@@ -215,10 +229,10 @@ async function main() {
   const messages = [];
 
   for (let i = 0; i < threadCount; i += 1) {
-    // The written threads carry the interesting content, so cycle through all
-    // of them first and only then pad with filler.
-    const useTemplate = i < THREADS.length || rng.chance(0.12);
-    const template = useTemplate ? THREADS[i % THREADS.length] : fillerTemplate();
+    // Each written thread appears exactly once. Repeating them padded the
+    // corpus with copies of the same conversation, and a search that finds
+    // five copies of the deposit thread looks better than it is.
+    const template = i < THREADS.length ? THREADS[i] : fillerTemplate();
     const sender = template.role
       ? rng.pick(SENDERS.filter((s) => s.role === template.role))
       : rng.pick(SENDERS);
@@ -269,19 +283,25 @@ async function main() {
     });
   }
 
-  // seedIntent is ground truth for stage 6, not a message field. Strip it here
-  // rather than letting strict mode silently drop it and hide the mistake.
-  const groundTruth = [];
-  for (const m of messages) {
-    if (m.seedIntent) groundTruth.push(m.seedIntent);
-    delete m.seedIntent;
-  }
+  // seedIntent is ground truth for stage 6, not a message field. It is lifted
+  // off here, before the insert, and written to its own collection against
+  // the ids the insert hands back. Strict mode would otherwise drop it
+  // silently and the labels would be gone.
+  const truths = messages.map((m) => m.seedIntent ?? null);
+  for (const m of messages) delete m.seedIntent;
 
   await Thread.insertMany(threads, { ordered: false });
   // Chunked because a single insertMany of tens of thousands of documents can
   // exceed the 16 MB command limit once bodies are attached.
+  let labelled = 0;
   for (let i = 0; i < messages.length; i += 1000) {
-    await Message.insertMany(messages.slice(i, i + 1000), { ordered: false });
+    const inserted = await Message.insertMany(messages.slice(i, i + 1000), { ordered: false });
+    const labels = inserted.flatMap((doc, j) => {
+      const label = truths[i + j];
+      return label ? [{ userId: user._id, messageId: doc._id, label, source: 'seed' }] : [];
+    });
+    if (labels.length > 0) await IntentLabel.insertMany(labels, { ordered: false });
+    labelled += labels.length;
   }
 
   const folderCounts = await Message.aggregate([
@@ -298,6 +318,7 @@ async function main() {
       labels: labels.length,
       folders: Object.fromEntries(folderCounts.map((f) => [f._id, f.n])),
       unread: await Message.countDocuments({ userId: user._id, isRead: false }),
+      intentLabels: labelled,
       seed: opts.seed,
     },
     'seeded',

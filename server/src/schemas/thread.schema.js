@@ -8,7 +8,7 @@ export const listThreadsQuery = z.object({
   folder: z.enum(FOLDERS).optional(),
   label: objectId.optional(),
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).optional(),
-  cursor: z.string().min(1).optional(),
+  cursor: z.string().min(1).max(200).optional(),
 });
 
 export const THREAD_ACTIONS = [

@@ -6,7 +6,8 @@ import mongoose from 'mongoose';
 import request from 'supertest';
 import { connect, disconnect, credentials } from './helpers.js';
 import { createApp } from '../src/app.js';
-import { User, Thread, Message } from '../src/models/index.js';
+import { User, Thread, Message, IntentLabel } from '../src/models/index.js';
+import { THREADS as WRITTEN, FILLER_SUBJECTS } from '../scripts/seed-data.js';
 
 const serverDir = path.resolve(import.meta.dirname, '..');
 
@@ -145,6 +146,58 @@ describe('seeded corpus', () => {
       .post('/api/auth/login')
       .send({ email: credentials.email, password: credentials.password });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('ground truth for stage 6', () => {
+  it('labels every inbound message and nothing I wrote myself', async () => {
+    const labelled = await IntentLabel.countDocuments({ userId: corpus.user._id, source: 'seed' });
+    const inbound = corpus.messages.filter((m) => m.folder === 'inbox').length;
+    expect(labelled).toBe(inbound);
+
+    const mine = corpus.messages.filter((m) => m.folder !== 'inbox').map((m) => m._id);
+    expect(mine.length).toBeGreaterThan(0);
+    expect(await IntentLabel.countDocuments({ messageId: { $in: mine } })).toBe(0);
+  });
+
+  // Filler threads only. The hand-written ones carry their own labels, and
+  // some of those are single messages too.
+  const fillerSubject = new RegExp(
+    `^(${FILLER_SUBJECTS.map((s) => s.replace('{n}', '\\d+').replace(/[.?]/g, '\\$&')).join('|')})$`,
+  );
+  const filler = () => corpus.threads.filter((t) => fillerSubject.test(t.subject));
+
+  it('labels a lone notification as read only, not as needing a reply', async () => {
+    const singles = filler().filter((t) => t.messageCount === 1);
+    expect(singles.length).toBeGreaterThan(100);
+    const ids = singles.map((t) => corpus.byThread.get(String(t._id))[0]._id);
+    const labels = await IntentLabel.find({ messageId: { $in: ids } }).distinct('label');
+    expect(labels).toEqual(['read_only']);
+  });
+
+  it('labels an exchange by who spoke last', async () => {
+    const [waiting] = filler().filter((t) => t.messageCount === 2);
+    const [needs] = filler().filter((t) => t.messageCount === 3);
+    const labelOf = async (thread) =>
+      (await IntentLabel.findOne({ messageId: corpus.byThread.get(String(thread._id))[0]._id })).label;
+
+    expect(await labelOf(waiting)).toBe('waiting_on_them');
+    expect(await labelOf(needs)).toBe('needs_reply');
+  });
+
+  it('writes each hand-written conversation exactly once', async () => {
+    const counts = WRITTEN.map((t) => corpus.threads.filter((c) => c.subject === t.subject).length);
+    expect(counts).toEqual(WRITTEN.map(() => 1));
+  });
+
+  it('leaves no labels behind on --reset', async () => {
+    // --reset recreates the account, so the user id changes. Counting across
+    // all users is what shows whether labels from the old one were cleared.
+    const before = await IntentLabel.countDocuments({});
+    expect(before).toBeGreaterThan(0);
+    seed();
+    expect(await IntentLabel.countDocuments({})).toBe(before);
+    corpus = await loadCorpus();
   });
 });
 

@@ -12,7 +12,11 @@ export function encodeCursor(row, dateField) {
 export function decodeCursor(cursor) {
   try {
     const { t, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-    if (!Number.isFinite(t) || !/^[a-f0-9]{24}$/.test(id)) throw new Error('bad shape');
+    // Beyond what Date can hold, Mongoose casts to an Invalid Date and the
+    // query fails as a CastError, which the error handler turns into a 404.
+    // A bad cursor is a bad request, so it is caught here instead.
+    const inDateRange = Number.isFinite(t) && Math.abs(t) <= 8.64e15;
+    if (!inDateRange || !/^[a-f0-9]{24}$/.test(id)) throw new Error('bad shape');
     return { t: new Date(t), id };
   } catch {
     throw badRequest('that page cursor is not valid', 'invalid_cursor');

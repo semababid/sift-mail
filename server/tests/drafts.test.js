@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import mongoose from 'mongoose';
 import request from 'supertest';
 import { connect, disconnect, clearDb, signIn, threadSummaryProblems } from './helpers.js';
 import { createApp } from '../src/app.js';
 import { Thread, Message } from '../src/models/index.js';
 import * as mail from '../src/services/mail.service.js';
+import { refreshThread } from '../src/services/thread-summary.js';
 
 const app = createApp();
 
@@ -122,6 +124,61 @@ describe('drafts', () => {
       expect((await annaApi.remove(id)).status).toBe(404);
       expect((await annaApi.send(id)).status).toBe(404);
     }
+  });
+});
+
+describe('thread subject bookkeeping', () => {
+  it('keeps the normalised subject in step when a draft subject is edited', async () => {
+    const { annaApi } = await pair();
+    const created = await annaApi.create({});
+    await annaApi.update(created.body.draft.id, { subject: 'Re: Aw:  Wohnung  Besichtigung ', to: [ben.email] });
+
+    const thread = await Thread.findById(created.body.draft.threadId).lean();
+    expect(thread.subject).toBe('Re: Aw:  Wohnung  Besichtigung');
+    expect(thread.normalizedSubject).toBe('wohnung besichtigung');
+  });
+
+  it('fills in a participant name once a later message supplies it', async () => {
+    // Written through the model rather than the API: sending looks names up
+    // from accounts, so over the API a Sift user is never nameless. Mail from
+    // outside can be, and stage 4 brings that in.
+    const { a } = await pair();
+    const threadId = new mongoose.Types.ObjectId();
+    await Thread.create({ _id: threadId, userId: a.user._id, lastMessageAt: new Date() });
+    const base = { userId: a.user._id, threadId, folder: 'inbox', to: [{ address: anna.email }] };
+    await Message.create({ ...base, from: { address: 'w.brandt@hausverwaltung.example' }, sentAt: new Date(1) });
+    await Message.create({
+      ...base,
+      from: { name: 'Wolfgang Brandt', address: 'w.brandt@hausverwaltung.example' },
+      sentAt: new Date(2),
+    });
+
+    const thread = await refreshThread(threadId);
+    const landlord = thread.participants.find((p) => p.address === 'w.brandt@hausverwaltung.example');
+    expect(landlord.name).toBe('Wolfgang Brandt');
+  });
+
+  it('gives a reply to mail with no subject no subject, rather than a bare "Re: "', async () => {
+    const { b, annaApi, benApi } = await pair();
+    await annaApi.message({ to: [ben.email] });
+    const benThread = await Thread.findOne({ userId: b.user._id }).lean();
+
+    const draft = await benApi.create({ threadId: String(benThread._id) });
+    expect(draft.body.draft.subject).toBe('');
+  });
+
+  it('sends a draft from a trashed conversation as ordinary sent mail', async () => {
+    const { annaApi, a } = await pair();
+    const created = await annaApi.create({ to: [ben.email], bodyText: 'aus dem Papierkorb' });
+    await request(app)
+      .post('/api/threads/batch')
+      .set('Cookie', a.cookie)
+      .send({ ids: [created.body.draft.threadId], action: 'trash' });
+
+    const sent = await annaApi.send(created.body.draft.id);
+    expect(sent.status).toBe(201);
+    const message = await Message.findById(created.body.draft.id).lean();
+    expect(message).toMatchObject({ folder: 'sent', trashedFrom: null, isDraft: false });
   });
 });
 

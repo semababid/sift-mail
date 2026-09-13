@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const objectId = z.string().regex(/^[a-f0-9]{24}$/, 'not a valid id');
 
 const addresses = z.array(z.email().max(254)).max(50);
-const subject = z.string().max(500);
+const subject = z.string().trim().max(500);
 const bodyText = z.string().max(200_000);
 
 // Strict objects, so a bodyHtml field is refused instead of silently dropped.

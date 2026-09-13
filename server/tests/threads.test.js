@@ -147,13 +147,21 @@ describe('GET /api/threads', () => {
     expect(res.body.fields).toHaveProperty(field);
   });
 
-  it.each(['garbage', Buffer.from('{"t":"x","id":"1"}').toString('base64url'), Buffer.from('[]').toString('base64url')])(
+  it.each([
+    'garbage',
+    Buffer.from('{"t":"x","id":"1"}').toString('base64url'),
+    Buffer.from('[]').toString('base64url'),
+    // A timestamp past what Date can hold. Without a range check this cast to
+    // an Invalid Date and came back as a 404.
+    Buffer.from('{"t":1e20,"id":"0123456789abcdef01234567"}').toString('base64url'),
+    'A'.repeat(201),
+  ])(
     'rejects the malformed cursor %s',
     async (cursor) => {
       const { cookie } = await signIn();
       const res = await list(cookie, { cursor });
       expect(res.status).toBe(400);
-      expect(res.body.code).toBe('invalid_cursor');
+      expect(res.body.code === 'invalid_cursor' || 'cursor' in (res.body.fields ?? {})).toBe(true);
     },
   );
 });

@@ -130,6 +130,24 @@ describe('POST /api/messages', () => {
     expect(benInbox.at(-1).references).toHaveLength(2);
   });
 
+  it('trims the subject', async () => {
+    const { anna } = await everyone();
+    const res = await send(anna, { to: [people.ben.email], subject: '   Hallo   ' });
+    expect(res.body.message.subject).toBe('Hallo');
+  });
+
+  it('records a normalised subject on both sides, without the reply prefix', async () => {
+    const { anna, ben } = await everyone();
+    await send(anna, { to: [people.ben.email], subject: 'Fwd: Termin' });
+    const [benCopy] = await inboxOf(ben);
+    await send(ben, { to: [people.anna.email], threadId: String(benCopy.threadId) });
+
+    for (const userId of [anna.user._id, ben.user._id]) {
+      const thread = await Thread.findOne({ userId }).lean();
+      expect(thread.normalizedSubject).toBe('termin');
+    }
+  });
+
   it('does not stack reply prefixes on the subject', async () => {
     const { anna, ben } = await everyone();
     await send(anna, { to: [people.ben.email], subject: 'Aw: Re: Wohnung' });

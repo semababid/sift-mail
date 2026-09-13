@@ -32,7 +32,12 @@ function collectRecipients({ to = [], cc = [], bcc = [] }) {
 
 const ownAddress = (user) => ({ name: user.name, address: user.email });
 const asAddresses = (list) => list.map((address) => ({ address }));
-const replySubject = (thread) => `Re: ${stripReplyPrefix(thread.subject)}`;
+// A reply to mail with no subject keeps no subject. "Re: " on its own is
+// what a client shows when this is not handled.
+function replySubject(thread) {
+  const bare = stripReplyPrefix(thread.subject);
+  return bare ? `Re: ${bare}` : '';
+}
 
 async function findOwnThread(user, threadId) {
   const thread = await Thread.findOne({ _id: threadId, userId: user._id });
@@ -129,7 +134,17 @@ export async function sendMessage(sender, input, { draft } = {}) {
     });
   }
 
-  const sentCopy = { ...shared, bcc, rfcMessageId, folder: 'sent', isDraft: false, isRead: true };
+  // trashedFrom is cleared in case this was a draft sent from inside a trashed
+  // conversation, so a later trash and restore returns it to sent.
+  const sentCopy = {
+    ...shared,
+    bcc,
+    rfcMessageId,
+    folder: 'sent',
+    isDraft: false,
+    isRead: true,
+    trashedFrom: null,
+  };
   let message;
   if (draft) {
     draft.set(sentCopy);
