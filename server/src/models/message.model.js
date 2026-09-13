@@ -30,6 +30,9 @@ const messageSchema = new mongoose.Schema(
     snippet: { type: String, default: '' },
 
     folder: { type: String, enum: FOLDERS, required: true, default: 'inbox' },
+    // Where the message was before it went to trash, so restoring it puts sent
+    // mail back under sent instead of dropping everything into the inbox.
+    trashedFrom: { type: String, enum: FOLDERS, default: null },
     isRead: { type: Boolean, default: false },
     isStarred: { type: Boolean, default: false },
     isDraft: { type: Boolean, default: false },

@@ -15,3 +15,11 @@ export async function show(req, res) {
   const { thread, messages } = await threadService.getThread(req.userId, req.params.id);
   res.json({ thread: thread.toJSON(), messages: messages.map((m) => m.toJSON()) });
 }
+
+// Answers with the updated threads so the client can reconcile its optimistic
+// update. Ids that are not the user's are left out, never reported as errors.
+export async function batch(req, res) {
+  const { ids, action } = req.valid.body;
+  const threads = await threadService.applyThreadAction(req.userId, ids, action);
+  res.json({ threads: threads.map((t) => t.toJSON()) });
+}
