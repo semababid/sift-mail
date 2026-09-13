@@ -1,11 +1,22 @@
 import mongoose from 'mongoose';
-import { Thread, Message } from '../models/index.js';
+import { Thread, Message, Label } from '../models/index.js';
 import { decodeCursor, encodeCursor } from '../lib/cursor.js';
-import { HttpError } from '../lib/errors.js';
+import { HttpError, notFound } from '../lib/errors.js';
+import { HIDDEN_FROM_LABELS, LABEL_ACTIONS } from '../lib/constants.js';
 import { refreshThread } from './thread-summary.js';
 
-export async function listThreads(userId, { folder, limit, cursor }) {
-  const filter = { userId, folders: folder };
+export async function listThreads(userId, { folder, label, limit, cursor }) {
+  const filter = { userId };
+
+  if (label) {
+    filter.labelIds = new mongoose.Types.ObjectId(label);
+    // A label on its own shows a conversation wherever it lives, as long as
+    // some of it is outside trash and spam. Given a folder too, it narrows to
+    // that folder.
+    filter.folders = folder ?? { $elemMatch: { $nin: HIDDEN_FROM_LABELS } };
+  } else {
+    filter.folders = folder ?? 'inbox';
+  }
 
   if (cursor) {
     const { t, id } = decodeCursor(cursor);
@@ -56,8 +67,24 @@ async function newestPerThread(userId, threadIds, { allowDrafts }) {
   return rows.map((row) => row.messageId);
 }
 
-export async function applyThreadAction(userId, ids, action) {
+// Back in the order they were asked for, which is the order the client is
+// showing them in.
+function inRequestOrder(requested, threads) {
+  const byId = new Map(threads.filter(Boolean).map((t) => [String(t._id), t]));
+  return requested.map((id) => byId.get(String(id))).filter(Boolean);
+}
+
+export async function applyThreadAction(userId, ids, action, { labelId } = {}) {
   const requested = [...new Set(ids)];
+
+  // A label that is not the user's is an error rather than something to skip.
+  // There is only one of it, and quietly applying nothing while answering 200
+  // would look like it worked. Foreign and made-up label ids get the same 404.
+  let label = null;
+  if (LABEL_ACTIONS.includes(action)) {
+    label = await Label.findOne({ _id: labelId, userId }).select('_id');
+    if (!label) throw notFound('label not found');
+  }
 
   // Ownership is settled before anything is written. Someone else's thread and
   // an id that does not exist are both simply absent from what comes back, so a
@@ -65,6 +92,15 @@ export async function applyThreadAction(userId, ids, action) {
   const owned = await Thread.find({ _id: { $in: requested }, userId }).select('_id');
   const threadIds = owned.map((t) => t._id);
   if (threadIds.length === 0) return [];
+
+  if (label) {
+    // Labels belong to the thread, not to its messages, so nothing under it
+    // changes and its summary needs no rebuild.
+    const change =
+      action === 'addLabel' ? { $addToSet: { labelIds: label._id } } : { $pull: { labelIds: label._id } };
+    await Thread.updateMany({ _id: { $in: threadIds }, userId }, change);
+    return inRequestOrder(requested, await Thread.find({ _id: { $in: threadIds } }));
+  }
 
   const inThreads = { userId, threadId: { $in: threadIds } };
 
@@ -115,9 +151,5 @@ export async function applyThreadAction(userId, ids, action) {
   }
 
   const refreshed = await Promise.all(threadIds.map((id) => refreshThread(id)));
-
-  // Back in the order they were asked for, which is the order the client is
-  // showing them in.
-  const byId = new Map(refreshed.filter(Boolean).map((t) => [String(t._id), t]));
-  return requested.map((id) => byId.get(String(id))).filter(Boolean);
+  return inRequestOrder(requested, refreshed);
 }

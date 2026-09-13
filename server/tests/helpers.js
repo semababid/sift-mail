@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { User, Thread, Message } from '../src/models/index.js';
+import { refreshThread } from '../src/services/thread-summary.js';
 
 export const credentials = { email: 'semab@sift.example', password: 'correct-horse', name: 'Semab' };
 
@@ -80,4 +81,31 @@ export async function threadSummaryProblems(threadId) {
   check('hasUnread', thread.hasUnread, messages.some((m) => !m.isRead));
   check('isStarred', thread.isStarred, messages.some((m) => m.isStarred));
   return problems;
+}
+
+// A thread built from message specs, oldest first, with its summary computed by
+// the same function the services use. A spec may pin its time with `at`.
+export async function makeThread(userId, specs, { labelIds = [], subject = 'Betreff' } = {}) {
+  const threadId = new mongoose.Types.ObjectId();
+  const now = Date.now();
+
+  await Thread.create({ _id: threadId, userId, subject, labelIds, lastMessageAt: new Date(now) });
+  await Message.insertMany(
+    specs.map((spec, i) => ({
+      userId,
+      threadId,
+      from: { address: 'someone@example.com' },
+      subject,
+      bodyText: spec.body ?? `message ${i}`,
+      snippet: spec.body ?? `message ${i}`,
+      folder: spec.folder ?? 'inbox',
+      isRead: spec.isRead ?? false,
+      isStarred: spec.isStarred ?? false,
+      isDraft: spec.isDraft ?? false,
+      trashedFrom: spec.trashedFrom ?? null,
+      sentAt: new Date(spec.at ?? now - (specs.length - i) * 60_000),
+    })),
+  );
+  await refreshThread(threadId);
+  return threadId;
 }
