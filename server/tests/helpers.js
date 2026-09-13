@@ -51,8 +51,19 @@ export function cookieJar() {
 // cookie alongside the stored user.
 export async function signIn(app, who = credentials) {
   const jar = cookieJar();
-  jar.capture(await request(app).post('/api/auth/register').send(who));
+  const res = await request(app).post('/api/auth/register').send(who);
+  jar.capture(res);
   const user = await User.findOne({ email: who.email });
+
+  // Fail here, with what registration actually answered, rather than a few
+  // lines later as "cannot read properties of null". A test failed that way
+  // twice under unrelated breaks, once in labels and once in search, and
+  // neither run showed why.
+  if (res.status !== 201 || !user) {
+    throw new Error(
+      `signIn for ${who.email} failed: register answered ${res.status} ${JSON.stringify(res.body)}, user ${user ? 'exists' : 'missing'}`,
+    );
+  }
   return { cookie: jar.header(), user };
 }
 

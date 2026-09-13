@@ -74,11 +74,27 @@ messageSchema.index({ userId: 1, folder: 1, sentAt: -1 });
 
 // Keyword search, and the baseline that stage 5 gets compared against. Mongo
 // allows one text index per collection, so subject and body share this one.
-// The userId prefix means a text query has to name a user to use the index,
-// which is the same argument as filtering the vector search by user.
+// The userId prefix means Mongo refuses any text query that does not pin
+// userId to one value, with error 291 rather than a result spanning users. An
+// unscoped search fails loudly instead of leaking, the same guarantee the
+// vector search gets from filtering by user.
+//
+// German stemming, since most of this mailbox is German: "Bewerbungen" finds
+// "Bewerbung". It does not split compounds, so "Nebenkosten" still misses
+// "Nebenkostenabrechnung", which is one of the gaps stage 5 is there to close.
+//
+// Mongo reads a field called `language` on any document in a text index as
+// that document's stemming language, and refuses the write when the value is
+// one it does not know. Mail headers carry values like "de-DE", so the
+// override points at a field nothing sets.
 messageSchema.index(
   { userId: 1, subject: 'text', bodyText: 'text' },
-  { weights: { subject: 10, bodyText: 1 }, name: 'message_text' },
+  {
+    weights: { subject: 10, bodyText: 1 },
+    name: 'message_text',
+    default_language: 'german',
+    language_override: 'textLanguage',
+  },
 );
 
 // Ingest dedupe from stage 4. Partial, because internal mail has no RFC id and

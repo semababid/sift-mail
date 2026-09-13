@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import mongoose from 'mongoose';
 import request from 'supertest';
-import { connect, disconnect, clearDb, cookieJar, credentials } from './helpers.js';
+import { connect, disconnect, clearDb, credentials, signIn as registerAndSignIn } from './helpers.js';
 import { createApp } from '../src/app.js';
 import { Thread, Message, User } from '../src/models/index.js';
 
@@ -11,12 +11,8 @@ beforeAll(connect);
 afterAll(disconnect);
 beforeEach(clearDb);
 
-async function signIn(who = credentials) {
-  const jar = cookieJar();
-  jar.capture(await request(app).post('/api/auth/register').send(who));
-  const user = await User.findOne({ email: who.email });
-  return { cookie: jar.header(), user };
-}
+// The shared helper, so a failed registration here reports what went wrong.
+const signIn = (who = credentials) => registerAndSignIn(app, who);
 
 // Builds a thread and its messages the way the seeder does: summary fields on
 // the thread agree with the messages under it.

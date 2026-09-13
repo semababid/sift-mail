@@ -99,6 +99,15 @@ describe.each([
 });
 
 describe('constraints', () => {
+  it('accepts mail carrying a language header without treating it as a search language', async () => {
+    // Straight through the driver, since the schema would drop an unknown field.
+    // Without language_override, Mongo refuses this write outright.
+    const raw = mongoose.connection.db.collection('messages');
+    await expect(
+      raw.insertOne({ userId, threadId, subject: 'Hallo', bodyText: 'Text', language: 'de-DE' }),
+    ).resolves.toBeTruthy();
+  });
+
   const message = () => ({ userId, threadId, from: { address: 'x@y.example' }, sentAt: new Date() });
 
   it('rejects a duplicate RFC Message-ID for the same user', async () => {
