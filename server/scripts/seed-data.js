@@ -3,18 +3,18 @@
 // with: a thread that actually runs back and forth, a sender whose mail is
 // always noise, one who always wants an answer.
 export const SENDERS = [
-  { name: 'Wolfgang Brandt', address: 'w.brandt@hausverwaltung-cottbus.de', role: 'landlord' },
-  { name: 'BTU Prüfungsamt', address: 'pruefungsamt@b-tu.de', role: 'university' },
-  { name: 'Studierendensekretariat', address: 'immatrikulation@b-tu.de', role: 'university' },
-  { name: 'Lena Hofmann', address: 'l.hofmann@volkswagen-recruiting.de', role: 'recruiter' },
-  { name: 'Priya Raghavan', address: 'priya.raghavan@siemens-talent.com', role: 'recruiter' },
-  { name: 'Sparkasse Spree-Neiße', address: 'service@sparkasse-spn.de', role: 'bank' },
-  { name: 'Techniker Krankenkasse', address: 'noreply@tk.de', role: 'insurance' },
-  { name: 'DHL Paket', address: 'sendungsverfolgung@dhl.de', role: 'delivery' },
-  { name: 'Jonas Weber', address: 'jonas.weber94@gmail.com', role: 'friend' },
-  { name: 'Aisha Kamara', address: 'aisha.kamara@b-tu.de', role: 'classmate' },
-  { name: 'PyData Berlin', address: 'hello@pydata-berlin.org', role: 'newsletter' },
-  { name: 'Papers With Code', address: 'digest@paperswithcode.com', role: 'newsletter' },
+  { name: 'Wolfgang Brandt', address: 'w.brandt@hausverwaltung.example', role: 'landlord' },
+  { name: 'Prüfungsamt', address: 'pruefungsamt@uni.example', role: 'university' },
+  { name: 'Studierendensekretariat', address: 'immatrikulation@uni.example', role: 'university' },
+  { name: 'Lena Hofmann', address: 'l.hofmann@autowerk.example', role: 'recruiter' },
+  { name: 'Priya Raghavan', address: 'priya.raghavan@techkonzern.example', role: 'recruiter' },
+  { name: 'Stadtbank', address: 'service@stadtbank.example', role: 'bank' },
+  { name: 'Krankenkasse', address: 'noreply@krankenkasse.example', role: 'insurance' },
+  { name: 'Paketdienst', address: 'sendungsverfolgung@paketdienst.example', role: 'delivery' },
+  { name: 'Jonas Weber', address: 'jonas.weber94@mail.example', role: 'friend' },
+  { name: 'Aisha Kamara', address: 'aisha.kamara@uni.example', role: 'classmate' },
+  { name: 'Data Meetup Berlin', address: 'hello@datameetup.example', role: 'newsletter' },
+  { name: 'Paper Digest', address: 'digest@paperdigest.example', role: 'newsletter' },
 ];
 
 // Each template is one thread. `replies` are what comes back after the opener,
@@ -27,7 +27,7 @@ export const THREADS = [
     subject: 'Nebenkostenabrechnung 2025',
     body: 'Sehr geehrter Herr Abid,\n\nanbei die Abrechnung für das vergangene Jahr. Es ergibt sich ein Guthaben von 214,60 EUR zu Ihren Gunsten. Bitte teilen Sie mir Ihre aktuelle Bankverbindung mit, damit ich die Auszahlung anweisen kann.\n\nMit freundlichen Grüßen\nWolfgang Brandt',
     replies: [
-      'Guten Tag Herr Brandt,\n\nvielen Dank. Meine Bankverbindung hat sich nicht geändert, es ist weiterhin das Konto bei der Sparkasse Spree-Neiße.\n\nViele Grüße\nSemab',
+      'Guten Tag Herr Brandt,\n\nvielen Dank. Meine Bankverbindung hat sich nicht geändert, es ist weiterhin das Konto bei der Stadtbank.\n\nViele Grüße\nSemab',
       'Danke für die Rückmeldung. Ich habe die Überweisung veranlasst, das Geld sollte bis Ende des Monats bei Ihnen sein.',
     ],
     intent: 'read_only',
@@ -47,7 +47,7 @@ export const THREADS = [
   {
     role: 'university',
     subject: 'Anmeldung Prüfung Maschinelles Lernen II',
-    body: 'Guten Tag,\n\ndie Anmeldefrist für die Prüfungen des Wintersemesters endet am 15. Januar. Eine Anmeldung nach Fristende ist nur in begründeten Ausnahmefällen möglich.\n\nBitte prüfen Sie Ihre Anmeldungen im Studierendenportal.\n\nPrüfungsamt BTU',
+    body: 'Guten Tag,\n\ndie Anmeldefrist für die Prüfungen des Wintersemesters endet am 15. Januar. Eine Anmeldung nach Fristende ist nur in begründeten Ausnahmefällen möglich.\n\nBitte prüfen Sie Ihre Anmeldungen im Studierendenportal.\n\nPrüfungsamt',
     intent: 'do_at_a_time',
   },
   {
@@ -58,7 +58,7 @@ export const THREADS = [
   },
   {
     role: 'recruiter',
-    subject: 'Werkstudent Computer Vision (m/w/d) in Wolfsburg',
+    subject: 'Werkstudent Computer Vision (m/w/d) in Berlin',
     body: 'Hallo Semab,\n\nich bin über dein GitHub auf dein KITTI-Projekt gestoßen und war beeindruckt, wie sauber das Tracking dokumentiert ist.\n\nWir suchen gerade einen Werkstudenten für unser Perception-Team, 20 Stunden pro Woche, Start flexibel. Hättest du diese oder nächste Woche 20 Minuten für ein kurzes Gespräch?\n\nViele Grüße\nLena Hofmann',
     intent: 'needs_reply',
   },
@@ -80,7 +80,7 @@ export const THREADS = [
   {
     role: 'insurance',
     subject: 'Nachweis der Studienbescheinigung erforderlich',
-    body: 'Guten Tag,\n\num Ihren studentischen Beitragssatz weiterzuführen, benötigen wir bis zum 31. des Monats eine aktuelle Studienbescheinigung. Ohne diesen Nachweis müssen wir den regulären Beitrag berechnen.\n\nIhre Techniker Krankenkasse',
+    body: 'Guten Tag,\n\num Ihren studentischen Beitragssatz weiterzuführen, benötigen wir bis zum 31. des Monats eine aktuelle Studienbescheinigung. Ohne diesen Nachweis müssen wir den regulären Beitrag berechnen.\n\nIhre Krankenkasse',
     intent: 'do_at_a_time',
   },
   {
@@ -107,8 +107,8 @@ export const THREADS = [
   },
   {
     role: 'newsletter',
-    subject: 'PyData Berlin: Call for Proposals schließt bald',
-    body: 'The call for proposals for PyData Berlin closes at the end of the month. We are looking for talks on machine learning in production, data engineering and open source tooling.\n\nSubmit a proposal or forward this to someone who should.',
+    subject: 'Data Meetup Berlin: Call for Proposals schließt bald',
+    body: 'The call for proposals for Data Meetup Berlin closes at the end of the month. We are looking for talks on machine learning in production, data engineering and open source tooling.\n\nSubmit a proposal or forward this to someone who should.',
     intent: 'read_only',
   },
   {

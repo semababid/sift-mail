@@ -25,7 +25,7 @@ async function makeThread(userId, { at, folders = ['inbox'], messages = 1, subje
   const docs = Array.from({ length: messages }, (_, i) => ({
     userId,
     threadId,
-    from: { address: 'someone@example.de' },
+    from: { address: 'someone@example.com' },
     subject,
     bodyText: `body ${i}`,
     snippet: `body ${i}`,
@@ -121,7 +121,7 @@ describe('GET /api/threads', () => {
 
   it("never shows another user's threads", async () => {
     const me = await signIn();
-    const other = await signIn({ ...credentials, email: 'other@b-tu.de' });
+    const other = await signIn({ ...credentials, email: 'other@sift.example' });
     await makeThread(other.user._id, { at: new Date(), subject: 'not yours' });
     await makeThread(me.user._id, { at: new Date(), subject: 'yours' });
 
@@ -189,7 +189,7 @@ describe('GET /api/threads/:id', () => {
     ['an id that is not an ObjectId', async () => 'not-an-id'],
   ])('answers %s with the same 404', async (_label, idFor) => {
     const me = await signIn();
-    const other = await signIn({ ...credentials, email: 'other@b-tu.de' });
+    const other = await signIn({ ...credentials, email: 'other@sift.example' });
     const id = await idFor(other);
 
     const res = await request(app).get(`/api/threads/${id}`).set('Cookie', me.cookie);

@@ -13,7 +13,7 @@ beforeAll(async () => {
     Array.from({ length: 50 }, (_, i) => ({
       userId,
       threadId,
-      from: { address: 'a@b.de' },
+      from: { address: 'a@b.example' },
       subject: i % 2 ? 'Kaution' : 'Rechnung',
       bodyText: 'text',
       folder: 'inbox',
@@ -89,7 +89,7 @@ describe.each([
 });
 
 describe('constraints', () => {
-  const message = () => ({ userId, threadId, from: { address: 'x@y.de' }, sentAt: new Date() });
+  const message = () => ({ userId, threadId, from: { address: 'x@y.example' }, sentAt: new Date() });
 
   it('rejects a duplicate RFC Message-ID for the same user', async () => {
     await Message.create({ ...message(), rfcMessageId: '<abc@mail>' });

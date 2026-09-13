@@ -11,9 +11,9 @@ afterAll(disconnect);
 beforeEach(clearDb);
 
 const people = {
-  anna: { email: 'anna@b-tu.de', password: 'correct-horse', name: 'Anna' },
-  ben: { email: 'ben@b-tu.de', password: 'correct-horse', name: 'Ben' },
-  cleo: { email: 'cleo@b-tu.de', password: 'correct-horse', name: 'Cleo' },
+  anna: { email: 'anna@sift.example', password: 'correct-horse', name: 'Anna' },
+  ben: { email: 'ben@sift.example', password: 'correct-horse', name: 'Ben' },
+  cleo: { email: 'cleo@sift.example', password: 'correct-horse', name: 'Cleo' },
 };
 
 async function everyone() {
@@ -68,7 +68,7 @@ describe('POST /api/messages', () => {
   it('answers identically whether or not a recipient has an account', async () => {
     const { anna } = await everyone();
     const toUser = await send(anna, { to: [people.ben.email], subject: 'x' });
-    const toStranger = await send(anna, { to: ['nobody@elsewhere.de'], subject: 'x' });
+    const toStranger = await send(anna, { to: ['nobody@elsewhere.example'], subject: 'x' });
 
     expect(toStranger.status).toBe(toUser.status);
     expect(Object.keys(toStranger.body).sort()).toEqual(['message', 'thread']);
@@ -76,7 +76,7 @@ describe('POST /api/messages', () => {
 
     // Kept on the sent copy for stage 4 to send over SMTP.
     const kept = await Message.findById(toStranger.body.message.id).lean();
-    expect(kept.to.map((a) => a.address)).toEqual(['nobody@elsewhere.de']);
+    expect(kept.to.map((a) => a.address)).toEqual(['nobody@elsewhere.example']);
   });
 
   it('keeps bcc recipients hidden from everyone except the sender and themselves', async () => {
@@ -168,7 +168,7 @@ describe('POST /api/messages', () => {
 
   it('delivers one copy when the same person is named twice', async () => {
     const { anna, ben } = await everyone();
-    await send(anna, { to: [people.ben.email], cc: ['BEN@b-tu.de'], subject: 'doppelt' });
+    await send(anna, { to: [people.ben.email], cc: ['BEN@sift.example'], subject: 'doppelt' });
 
     expect(await inboxOf(ben)).toHaveLength(1);
     const [sent] = await sentOf(anna);
@@ -178,8 +178,8 @@ describe('POST /api/messages', () => {
   it.each([
     ['no recipients', {}, 'to'],
     ['an invalid address', { to: ['not-an-email'] }, 'to.0'],
-    ['a malformed thread id', { to: ['ben@b-tu.de'], threadId: 'nope' }, 'threadId'],
-    ['more than 50 recipients', { to: Array.from({ length: 51 }, (_, i) => `p${i}@b.de`) }, 'to'],
+    ['a malformed thread id', { to: ['ben@sift.example'], threadId: 'nope' }, 'threadId'],
+    ['more than 50 recipients', { to: Array.from({ length: 51 }, (_, i) => `p${i}@b.example`) }, 'to'],
   ])('rejects %s', async (_label, body, field) => {
     const { anna } = await everyone();
     const res = await send(anna, body);

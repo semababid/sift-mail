@@ -25,7 +25,7 @@ describe('validation', () => {
   });
 
   it('names the fields that are missing', async () => {
-    const res = await request(app).post('/api/auth/register').send({ email: 'a@b.de' });
+    const res = await request(app).post('/api/auth/register').send({ email: 'a@b.example' });
     expect(res.status).toBe(400);
     expect(res.body.fields).toHaveProperty('password');
     expect(res.body.fields).toHaveProperty('name');
@@ -79,7 +79,7 @@ describe('error handler', () => {
 });
 
 describe('origin check', () => {
-  const attempt = () => request(app).post('/api/auth/login').send({ email: 'a@b.de', password: 'x'.repeat(12) });
+  const attempt = () => request(app).post('/api/auth/login').send({ email: 'a@b.example', password: 'x'.repeat(12) });
 
   it('refuses a state-changing request from another site', async () => {
     const res = await attempt().set('Origin', 'https://evil.example');

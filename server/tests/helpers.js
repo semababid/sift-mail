@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import request from 'supertest';
 import { User, Thread, Message } from '../src/models/index.js';
 
-export const credentials = { email: 'semab@b-tu.de', password: 'correct-horse', name: 'Semab' };
+export const credentials = { email: 'semab@sift.example', password: 'correct-horse', name: 'Semab' };
 
 export async function connect() {
   const { connectDb } = await import('../src/config/db.js');

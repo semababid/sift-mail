@@ -12,8 +12,8 @@ afterAll(disconnect);
 beforeEach(clearDb);
 afterEach(() => vi.restoreAllMocks());
 
-const anna = { email: 'anna@b-tu.de', password: 'correct-horse', name: 'Anna' };
-const ben = { email: 'ben@b-tu.de', password: 'correct-horse', name: 'Ben' };
+const anna = { email: 'anna@sift.example', password: 'correct-horse', name: 'Anna' };
+const ben = { email: 'ben@sift.example', password: 'correct-horse', name: 'Ben' };
 
 const api = (who) => ({
   create: (body) => request(app).post('/api/drafts').set('Cookie', who.cookie).send(body),
@@ -204,7 +204,7 @@ describe('sending a draft', () => {
     const draft = await benApi.create({ threadId: String(original.threadId), to: [anna.email], bodyText: 'Antwort' });
     // Drafts synced from a real mailbox in stage 4 arrive with a Message-ID of
     // their own. Nothing in Sift assigns one yet, so it is set by hand here.
-    await Message.updateOne({ _id: draft.body.draft.id }, { rfcMessageId: '<draft-from-imap@example.de>' });
+    await Message.updateOne({ _id: draft.body.draft.id }, { rfcMessageId: '<draft-from-imap@example.com>' });
 
     const sent = await benApi.send(draft.body.draft.id);
     expect(sent.status).toBe(201);

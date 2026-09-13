@@ -18,7 +18,7 @@ afterAll(disconnect);
 
 describe('rate limits', () => {
   it('throttles the eleventh login attempt inside the window', async () => {
-    const attempt = (i) => request(app).post('/api/auth/login').send({ email: `x${i}@b.de`, password: 'whatever-long' });
+    const attempt = (i) => request(app).post('/api/auth/login').send({ email: `x${i}@b.example`, password: 'whatever-long' });
 
     for (let i = 0; i < 10; i += 1) {
       expect((await attempt(i)).status).toBe(401);

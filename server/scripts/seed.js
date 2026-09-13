@@ -10,7 +10,7 @@ import { SENDERS, THREADS, FILLER_SUBJECTS, FILLER_BODIES, FILLER_REPLIES } from
 
 const { values: opts } = parseArgs({
   options: {
-    email: { type: 'string', default: 'semab@b-tu.de' },
+    email: { type: 'string', default: 'semab@sift.example' },
     password: { type: 'string', default: 'correct-horse' },
     name: { type: 'string', default: 'Semab' },
     threads: { type: 'string', default: '1200' },

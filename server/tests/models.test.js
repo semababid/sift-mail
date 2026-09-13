@@ -11,12 +11,12 @@ const objectId = () => new mongoose.Types.ObjectId();
 
 describe('User', () => {
   it('lowercases and trims the email', async () => {
-    const user = await User.create({ email: '  Semab@B-TU.de ', passwordHash: 'x', name: 'S' });
-    expect(user.email).toBe('semab@b-tu.de');
+    const user = await User.create({ email: '  Semab@SIFT.Example ', passwordHash: 'x', name: 'S' });
+    expect(user.email).toBe('semab@sift.example');
   });
 
   it('strips the password hash from JSON even when it was loaded', async () => {
-    const created = await User.create({ email: 'a@b.de', passwordHash: 'secret-hash', name: 'A' });
+    const created = await User.create({ email: 'a@b.example', passwordHash: 'secret-hash', name: 'A' });
     const json = (await User.findById(created._id).select('+passwordHash')).toJSON();
 
     expect(json).not.toHaveProperty('passwordHash');
@@ -26,8 +26,8 @@ describe('User', () => {
   });
 
   it('rejects a second account with the same email in any case', async () => {
-    await User.create({ email: 'a@b.de', passwordHash: 'x', name: 'A' });
-    await expect(User.create({ email: 'A@B.de', passwordHash: 'y', name: 'B' })).rejects.toMatchObject({
+    await User.create({ email: 'a@b.example', passwordHash: 'x', name: 'A' });
+    await expect(User.create({ email: 'A@B.example', passwordHash: 'y', name: 'B' })).rejects.toMatchObject({
       code: 11000,
     });
   });

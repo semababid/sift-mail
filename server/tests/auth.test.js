@@ -67,7 +67,7 @@ describe('register', () => {
 describe('login', () => {
   it('answers an unknown address and a wrong password identically', async () => {
     await register();
-    const unknown = await request(app).post('/api/auth/login').send({ ...credentials, email: 'ghost@nowhere.de' });
+    const unknown = await request(app).post('/api/auth/login').send({ ...credentials, email: 'ghost@nowhere.example' });
     const wrong = await request(app).post('/api/auth/login').send({ ...credentials, password: 'wrong-password' });
 
     expect(unknown.status).toBe(401);
@@ -90,7 +90,7 @@ describe('login', () => {
     const unknown = [];
     const wrong = [];
     for (let i = 0; i < 7; i += 1) {
-      unknown.push(await time('ghost@nowhere.de', 'correct-horse'));
+      unknown.push(await time('ghost@nowhere.example', 'correct-horse'));
       wrong.push(await time(credentials.email, 'wrong-password'));
     }
 
