@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import '../src/models/index.js';
+import request from 'supertest';
+import { User, Thread, Message } from '../src/models/index.js';
 
 export const credentials = { email: 'semab@b-tu.de', password: 'correct-horse', name: 'Semab' };
 
@@ -43,4 +44,40 @@ export function cookieJar() {
     get: (name) => jar.get(name),
     has: (name) => jar.has(name),
   };
+}
+
+// Registers an account through the real endpoint and returns its session
+// cookie alongside the stored user.
+export async function signIn(app, who = credentials) {
+  const jar = cookieJar();
+  jar.capture(await request(app).post('/api/auth/register').send(who));
+  const user = await User.findOne({ email: who.email });
+  return { cookie: jar.header(), user };
+}
+
+// Every way a thread's stored summary disagrees with the messages under it.
+// Empty means in sync. Drafts follow the service's rule: they file a thread
+// under drafts, but only decide the summary when nothing else is there.
+export async function threadSummaryProblems(threadId) {
+  const thread = await Thread.findById(threadId).lean();
+  const messages = await Message.find({ threadId }).sort({ sentAt: 1, _id: 1 }).lean();
+
+  if (!thread) return messages.length > 0 ? ['thread is gone but its messages remain'] : [];
+  if (messages.length === 0) return ['thread has no messages left'];
+
+  const real = messages.filter((m) => !m.isDraft);
+  const basis = real.length > 0 ? real : messages;
+  const last = basis.at(-1);
+
+  const problems = [];
+  const check = (field, stored, expected) => {
+    if (stored !== expected) problems.push(`${field}: stored ${stored}, expected ${expected}`);
+  };
+  check('messageCount', thread.messageCount, basis.length);
+  check('lastMessageAt', +thread.lastMessageAt, +last.sentAt);
+  check('snippet', thread.snippet, last.snippet);
+  check('folders', [...thread.folders].sort().join(), [...new Set(messages.map((m) => m.folder))].sort().join());
+  check('hasUnread', thread.hasUnread, messages.some((m) => !m.isRead));
+  check('isStarred', thread.isStarred, messages.some((m) => m.isStarred));
+  return problems;
 }
