@@ -193,6 +193,21 @@ describe('sending a draft', () => {
     expect((await Message.findById(created.body.draft.id)).isDraft).toBe(true);
   });
 
+  it('answers with the thread as it is stored after delivery when a draft is sent to yourself', async () => {
+    const { annaApi } = await pair();
+    const created = await annaApi.create({ to: [anna.email], subject: 'An mich', bodyText: 'Erinnerung' });
+
+    const res = await annaApi.send(created.body.draft.id);
+    const stored = await Thread.findById(res.body.thread.id).lean();
+    expect([...res.body.thread.folders].sort()).toEqual(['inbox', 'sent']);
+    expect(res.body.thread).toMatchObject({
+      messageCount: stored.messageCount,
+      hasUnread: stored.hasUnread,
+      snippet: stored.snippet,
+    });
+    expect(res.body.thread.hasUnread).toBe(true);
+  });
+
   it('turns the draft into the sent copy and delivers it', async () => {
     const { a, b, annaApi } = await pair();
     const created = await annaApi.create({ to: [ben.email], subject: 'Einladung', bodyText: 'Freitag?' });

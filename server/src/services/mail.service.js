@@ -152,7 +152,7 @@ export async function sendMessage(sender, input, { draft } = {}) {
   } else {
     message = await Message.create({ ...sentCopy, userId: sender._id, threadId: thread._id });
   }
-  const senderThread = await refreshThread(thread._id);
+  let senderThread = await refreshThread(thread._id);
 
   // One inbox copy per Sift user on the message, each filed in that user's own
   // thread. Addresses without an account stay on the sent copy, where stage 4
@@ -177,7 +177,11 @@ export async function sendMessage(sender, input, { draft } = {}) {
       folder: 'inbox',
       isRead: false,
     });
-    await refreshThread(recipientThread);
+    const refreshed = await refreshThread(recipientThread);
+    // Mail to yourself files its inbox copy in the sender's own thread, so the
+    // summary to hand back is this one, taken after delivery. Returning the
+    // earlier one showed the thread as read and missing from the inbox.
+    if (isSelf) senderThread = refreshed;
   }
 
   return { message, thread: senderThread };

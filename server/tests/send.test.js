@@ -184,6 +184,30 @@ describe('POST /api/messages', () => {
     expect(replyMessage.inReplyTo).toMatch(/@sift\.local>$/);
   });
 
+  it('answers with the thread as it is stored after delivery, including mail to yourself', async () => {
+    const { anna } = await everyone();
+    const summary = (t) => ({
+      folders: [...t.folders].sort(),
+      messageCount: t.messageCount,
+      hasUnread: t.hasUnread,
+      snippet: t.snippet,
+      lastMessageAt: new Date(t.lastMessageAt).getTime(),
+    });
+    // Compared straight after each request, since the next one changes the thread.
+    const matchesStored = async (res) => {
+      expect(res.status).toBe(201);
+      const stored = await Thread.findById(res.body.thread.id).lean();
+      expect(summary(res.body.thread)).toEqual(summary(stored));
+    };
+
+    const toSelf = await send(anna, { to: [people.anna.email], subject: 'Notiz', bodyText: 'eins' });
+    await matchesStored(toSelf);
+    expect(toSelf.body.thread).toMatchObject({ messageCount: 2, hasUnread: true });
+
+    await matchesStored(await send(anna, { to: [people.anna.email], threadId: toSelf.body.thread.id, bodyText: 'zwei' }));
+    await matchesStored(await send(anna, { to: [people.ben.email], subject: 'Hallo' }));
+  });
+
   it('delivers one copy when the same person is named twice', async () => {
     const { anna, ben } = await everyone();
     await send(anna, { to: [people.ben.email], cc: ['BEN@sift.example'], subject: 'doppelt' });
