@@ -54,3 +54,13 @@ All free. None of them need a card.
 ```bash
 brew install gh
 ```
+
+## Running the tests
+
+```bash
+npm test
+```
+
+The suite starts its own MongoDB in memory, so Docker does not need to be running. The first run downloads a mongod binary of about 65 MB into `~/.cache/mongodb-binaries`, and after that the whole suite finishes in a few seconds. Each test file gets its own database, so files run side by side without stepping on each other.
+
+`npm run test:watch --workspace=server` reruns whatever a change touches.

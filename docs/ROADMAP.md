@@ -199,8 +199,8 @@ Ships in an evening and is the feature people actually like.
 
 ## Stage 10: Make it presentable
 
-**10.1** Tests where they pay: search fusion, triage output parsing, auth middleware, thread grouping. Vitest and Supertest, in-memory Mongo. Do not chase coverage.
-`add tests`
+**10.1** Fill the gaps in the test suite. It has run on every step since 2.1, so by now the job is the parts that were awkward to test at the time: search fusion, triage output parsing, the streaming paths. Do not chase coverage.
+`add missing tests`
 
 **10.2** Sanitise incoming mail HTML with DOMPurify before it reaches the reading pane, block remote images by default, rate limit the AI routes. Rendering untrusted mail HTML is the obvious hole in every clone. Say in the README that you closed it.
 `sanitise mail html and rate limit ai routes`

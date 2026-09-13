@@ -5,13 +5,13 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
 import { env, isProd } from './config/env.js';
-import { logger } from './config/logger.js';
+import { logger as defaultLogger } from './config/logger.js';
 import { apiRouter } from './routes/index.js';
 import { errorHandler } from './middleware/error.js';
 import { apiLimiter } from './middleware/rate-limit.js';
 import { originCheck } from './middleware/origin-check.js';
 
-export function createApp() {
+export function createApp({ logger = defaultLogger } = {}) {
   const app = express();
 
   app.disable('x-powered-by');

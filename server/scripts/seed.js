@@ -17,12 +17,18 @@ const { values: opts } = parseArgs({
     seed: { type: 'string', default: '42' },
     days: { type: 'string', default: '180' },
     reset: { type: 'boolean', default: false },
+    // Pins the clock. Without it the same seed gives the same messages but
+    // different dates on different days, and the tests cannot check behaviour
+    // that depends on the time of day the script happens to run.
+    now: { type: 'string' },
   },
 });
 
 const threadCount = Number(opts.threads);
 const spanDays = Number(opts.days);
 const rng = makeRng(Number(opts.seed));
+const NOW = opts.now ? Date.parse(opts.now) : Date.now();
+if (Number.isNaN(NOW)) throw new Error(`--now is not a date: ${opts.now}`);
 
 const LABELS = [
   { name: 'Wohnung', color: '#0ea5e9' },
@@ -42,9 +48,14 @@ const DAY_END = 20;
 // feels like.
 function randomSentAt() {
   const skewed = rng.next() ** 2.2;
-  const at = new Date(Date.now() - skewed * spanDays * 86_400_000);
+  const at = new Date(NOW - skewed * spanDays * 86_400_000);
   // Office hours, roughly. Mail timestamped 04:00 looks synthetic.
   at.setUTCHours(rng.int(DAY_START, DAY_END), rng.int(0, 59), rng.int(0, 59), 0);
+  // Picking an hour on today's date can land later than now: at 07:30 there is
+  // a whole afternoon still ahead. Threads get shifted back afterwards, but a
+  // draft is a single message with nothing after it to trigger that, so the
+  // clamp has to happen here. A day back keeps the hour it picked.
+  if (at.getTime() > NOW) at.setUTCDate(at.getUTCDate() - 1);
   return at;
 }
 
@@ -108,7 +119,7 @@ function buildThread({ user, template, sender, labelIds }) {
   // Slide the whole thread back in whole days: shifting by the raw overflow
   // would fix the date and break the time, dropping messages into the middle
   // of the night that advance() just worked to avoid.
-  const overflow = messages.at(-1).sentAt.getTime() - Date.now();
+  const overflow = messages.at(-1).sentAt.getTime() - NOW;
   if (overflow > 0) {
     const shift = Math.ceil(overflow / 86_400_000) * 86_400_000;
     for (const m of messages) m.sentAt = new Date(m.sentAt.getTime() - shift);
