@@ -65,11 +65,14 @@ function freePort() {
   });
 }
 
+// The spawned server binds every interface, IPv6 included, so it is reached
+// over ::1. Asking 127.0.0.1 can land on another program that holds the same
+// port on IPv4 loopback alone, which macOS allows alongside the IPv6 bind.
 async function waitUntilHealthy(port, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return;
+      if ((await fetch(`http://[::1]:${port}/health`)).ok) return;
     } catch {
       // not listening yet
     }
@@ -91,7 +94,7 @@ describe('graceful shutdown', () => {
     try {
       await waitUntilHealthy(port);
 
-      const socket = net.connect(port, '127.0.0.1');
+      const socket = net.connect(port, '::1');
       await new Promise((resolve) => socket.once('connect', resolve));
       socket.write('GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n');
       await new Promise((resolve) => socket.once('data', resolve));

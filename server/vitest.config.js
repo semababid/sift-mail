@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     globalSetup: ['./tests/setup/mongo.js'],
-    setupFiles: ['./tests/setup/env.js'],
+    setupFiles: ['./tests/setup/loopback.js', './tests/setup/env.js'],
     // Separate processes rather than threads. Several suites spawn the server
     // or the seeder as child processes, and each file needs its own copy of
     // the env module parsed from its own process.env.
