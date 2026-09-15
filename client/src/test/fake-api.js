@@ -118,10 +118,43 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], pageSize
       record(request);
       const body = await request.json();
       state.batches.push(body);
-      if (body.action !== 'markRead') return failure(400);
+      if (state.batchStatus) return failure(state.batchStatus);
 
-      state.threads = state.threads.map((t) => (body.ids.includes(t.id) ? { ...t, hasUnread: false } : t));
+      const actions = {
+        markRead: (t) => ({ ...t, hasUnread: false }),
+        archive: (t) => ({ ...t, folders: [...new Set(t.folders.map((f) => (f === 'inbox' ? 'archive' : f)))] }),
+      };
+      const change = actions[body.action];
+      if (!change) return failure(400);
+
+      state.threads = state.threads.map((t) => (body.ids.includes(t.id) ? change(t) : t));
       return HttpResponse.json({ threads: state.threads.filter((t) => body.ids.includes(t.id)) });
+    }),
+
+    // Matches the words anywhere in the subject or snippet, and leaves out
+    // trash and spam as the real search does. The snippet it sends back is
+    // marked, so a test can tell it apart from the thread's own.
+    http.get('/api/search', ({ request }) => {
+      record(request);
+      const q = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase();
+      if (!q) return HttpResponse.json({ error: 'validation failed', code: 'invalid_body' }, { status: 400 });
+
+      const results = state.threads
+        .filter((t) => t.folders.some((f) => !HIDDEN_FROM_LABELS.includes(f)))
+        .filter((t) => `${t.subject} ${t.snippet}`.toLowerCase().includes(q))
+        .map((thread) => ({
+          thread,
+          match: {
+            messageId: `match-${thread.id}`,
+            subject: thread.subject,
+            snippet: `Match: ${thread.snippet}`,
+            from: thread.participants[0],
+            sentAt: thread.lastMessageAt,
+            folder: thread.folders[0],
+            score: 1,
+          },
+        }));
+      return HttpResponse.json({ results });
     }),
 
     http.get('/api/labels', ({ request }) => {

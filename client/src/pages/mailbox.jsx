@@ -1,26 +1,231 @@
-import { useParams } from 'react-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import Sidebar from '../features/mail/sidebar.jsx';
 import ThreadList from '../features/mail/thread-list.jsx';
 import ReadingPane from '../features/mail/reading-pane.jsx';
-import { folderName } from '../features/mail/folders.js';
-import { useLabels } from '../features/mail/queries.js';
+import SearchBox from '../features/mail/search-box.jsx';
+import CommandPalette from '../features/mail/command-palette.jsx';
+import ShortcutHelp from '../features/mail/shortcut-help.jsx';
+import { FOLDERS, folderName } from '../features/mail/folders.js';
+import { useArchive, useLabels, useSearch, useThreadList } from '../features/mail/queries.js';
+import { useLogout } from '../features/auth/session.js';
+import { useShortcuts } from '../lib/shortcuts.js';
 import NotFound from './not-found.jsx';
 
+const NOTICE_MS = 4000;
+const noop = () => {};
+
 // Folders and labels on the left, conversations in the middle, the open one on
-// the right. What is on screen comes from the address alone, /inbox/<thread> or
-// /label/<label>/<thread>, so a reload or a copied link opens the same view.
+// the right. What is on screen comes from the address alone, /inbox/<thread>,
+// /label/<label>/<thread> or /search/<thread>?q=..., so a reload or a copied
+// link opens the same view.
+//
+// `mode` is "folder", "label" or "search", set by the route.
 //
 // Narrower screens show fewer panes: no sidebar below md, and below lg either
 // the list or the open conversation.
-export default function Mailbox() {
+export default function Mailbox({ mode }) {
   const { folder, labelId, threadId } = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const labels = useLabels();
+  const logout = useLogout();
+  const archive = useArchive();
+  const searchRef = useRef(null);
 
-  const inLabel = labelId !== undefined;
-  const label = inLabel ? labels.data?.find((candidate) => candidate.id === labelId) : null;
-  if (inLabel ? labels.isSuccess && !label : !folderName(folder)) return <NotFound />;
+  const query = mode === 'search' ? (searchParams.get('q') ?? '').trim() : '';
+  const label = mode === 'label' ? labels.data?.find((candidate) => candidate.id === labelId) : null;
+  const notFound = mode === 'folder' ? !folderName(folder) : mode === 'label' && labels.isSuccess && !label;
 
-  const basePath = inLabel ? `/label/${labelId}` : `/${folder}`;
+  const basePath = { folder: `/${folder}`, label: `/label/${labelId}`, search: '/search' }[mode];
+  const suffix = query ? `?q=${encodeURIComponent(query)}` : '';
+  const listPath = basePath + suffix;
+  const threadPath = (id) => `${basePath}/${id}${suffix}`;
+
+  const threadList = useThreadList(mode === 'folder' && !notFound ? { folder } : label ? { label: labelId } : null);
+  const search = useSearch(query);
+  const pagedThreads = useMemo(() => threadList.data?.pages.flatMap((page) => page.threads) ?? [], [threadList.data]);
+
+  // Paged lists and search results in one shape, so the list and the keys
+  // below do not need to know which one is on screen.
+  const list =
+    mode === 'search'
+      ? {
+          threads: search.data ?? [],
+          isPending: search.isPending,
+          isError: search.isError,
+          refetch: search.refetch,
+          hasNextPage: false,
+          isFetchingNextPage: false,
+          isFetchNextPageError: false,
+          fetchNextPage: noop,
+        }
+      : {
+          threads: pagedThreads,
+          isPending: threadList.isPending,
+          // A failed later page keeps what loaded and is shown under the rows.
+          isError: threadList.isError && !threadList.data,
+          refetch: threadList.refetch,
+          hasNextPage: threadList.hasNextPage,
+          isFetchingNextPage: threadList.isFetchingNextPage,
+          isFetchNextPageError: threadList.isFetchNextPageError,
+          fetchNextPage: threadList.fetchNextPage,
+        };
+  const threads = list.threads;
+  const openIndex = threads.findIndex((thread) => thread.id === threadId);
+
+  const [dialog, setDialog] = useState(null);
+  const [queued, setQueued] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  // A selection belongs to one view. Moving to another folder, label or search
+  // starts with nothing selected, and so does coming back.
+  const [selection, setSelection] = useState({ view: listPath, ids: [] });
+  if (selection.view !== listPath) setSelection({ view: listPath, ids: [] });
+  const selectedIds = selection.view === listPath ? selection.ids : [];
+
+  const say = (text) => setNotice({ text, at: Date.now() });
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  // A command picked in the palette runs once the palette has closed and handed
+  // focus back. Run any earlier, and "Search mail" would put the cursor in the
+  // search box only for the closing palette to take it away again.
+  useEffect(() => {
+    if (!queued || dialog !== null) return;
+    setQueued(null);
+    queued.run();
+  }, [queued, dialog]);
+
+  function openAt(index) {
+    const thread = threads[index];
+    // Moving between conversations replaces the history entry, so Back leaves
+    // the mailbox view rather than stepping through every message read.
+    if (thread) navigate(threadPath(thread.id), { replace: Boolean(threadId) });
+  }
+  const next = () => openAt(openIndex === -1 ? 0 : Math.min(openIndex + 1, threads.length - 1));
+  const previous = () => openAt(Math.max(openIndex - 1, 0));
+
+  function toggleSelected(id) {
+    setSelection((current) => {
+      const ids = current.view === listPath ? current.ids : [];
+      return { view: listPath, ids: ids.includes(id) ? ids.filter((other) => other !== id) : [...ids, id] };
+    });
+  }
+  const clearSelection = () => setSelection({ view: listPath, ids: [] });
+
+  function selectOpen() {
+    if (threadId) toggleSelected(threadId);
+    else say('Open a conversation to select it.');
+  }
+
+  function archiveTargets() {
+    if (archive.isPending) return;
+    const ids = selectedIds.length > 0 ? selectedIds : threadId ? [threadId] : [];
+    if (ids.length === 0) return say('Open or select a conversation to archive it.');
+
+    const inInbox = new Set(threads.filter((thread) => thread.folders.includes('inbox')).map((thread) => thread.id));
+    const targets = ids.filter((id) => inInbox.has(id));
+    if (targets.length === 0) return say('Only conversations in the inbox can be archived.');
+
+    // When the open conversation is archived, the next one down takes its
+    // place, skipping any archived with it, or the nearest one above.
+    const closing = targets.includes(threadId);
+    const staying = (thread) => !targets.includes(thread.id);
+    const after = closing
+      ? (threads.slice(openIndex + 1).find(staying) ?? threads.slice(0, openIndex).reverse().find(staying))
+      : null;
+
+    archive.mutate(targets, {
+      onSuccess: () => {
+        say(targets.length === 1 ? 'Conversation archived.' : `${targets.length} conversations archived.`);
+        clearSelection();
+        if (closing) navigate(after ? threadPath(after.id) : listPath, { replace: true });
+      },
+      onError: () => say('Sift could not archive that. Try again.'),
+    });
+  }
+
+  function escape() {
+    if (selectedIds.length > 0) clearSelection();
+    else if (threadId) navigate(listPath);
+  }
+
+  function focusSearch() {
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  }
+
+  useShortcuts(
+    {
+      j: next,
+      k: previous,
+      x: selectOpen,
+      e: archiveTargets,
+      '/': focusSearch,
+      '?': () => setDialog('help'),
+      Escape: escape,
+      'mod+k': () => setDialog((open) => (open === 'palette' ? null : 'palette')),
+    },
+    { enabled: dialog === null && !notFound, always: notFound ? [] : ['mod+k'], repeat: ['j', 'k'] },
+  );
+
+  const commands = [
+    { id: 'next', title: 'Next conversation', keys: 'j', run: next },
+    { id: 'previous', title: 'Previous conversation', keys: 'k', run: previous },
+    { id: 'archive', title: 'Archive', keys: 'e', run: archiveTargets },
+    { id: 'select', title: 'Select conversation', keys: 'x', run: selectOpen },
+    { id: 'search', title: 'Search mail', keys: '/', run: focusSearch },
+    ...FOLDERS.map((entry) => ({ id: `folder-${entry.id}`, title: `Go to ${entry.name}`, run: () => navigate(`/${entry.id}`) })),
+    ...(labels.data ?? []).map((entry) => ({
+      id: `label-${entry.id}`,
+      title: `Go to label ${entry.name}`,
+      run: () => navigate(`/label/${entry.id}`),
+    })),
+    { id: 'shortcuts', title: 'Keyboard shortcuts', keys: '?', run: () => setDialog('help') },
+    { id: 'sign-out', title: 'Sign out', run: () => logout.mutate() },
+  ];
+
+  if (notFound) return <NotFound />;
+
+  const title = mode === 'search' ? 'Search results' : mode === 'label' ? label?.name : folderName(folder);
+
+  let listContent;
+  if (mode === 'label' && !label) {
+    listContent = labels.isError ? (
+      <p className="px-4 py-6 text-sm text-stone-500">
+        Sift could not load your labels.{' '}
+        <button type="button" onClick={() => labels.refetch()} className="text-sky-700 underline">
+          Try again
+        </button>
+      </p>
+    ) : (
+      <p role="status" className="px-4 py-6 text-sm text-stone-500">
+        Loading label
+      </p>
+    );
+  } else if (mode === 'search' && !query) {
+    listContent = <p className="px-4 py-6 text-sm text-stone-500">Type in the search box and press Enter.</p>;
+  } else {
+    listContent = (
+      // Keyed by view, so switching folders starts a fresh list at the top.
+      <ThreadList
+        key={listPath}
+        title={title}
+        emptyText={mode === 'search' ? `No conversations match "${query}".` : `Nothing in ${title}.`}
+        list={list}
+        basePath={basePath}
+        linkSuffix={suffix}
+        openId={threadId}
+        selectedIds={selectedIds}
+        onToggleSelect={toggleSelected}
+      />
+    );
+  }
 
   return (
     <div className="flex h-dvh bg-white text-stone-900">
@@ -31,31 +236,44 @@ export default function Mailbox() {
       <div
         className={`${threadId ? 'hidden lg:flex' : 'flex'} min-w-0 flex-1 flex-col border-r border-stone-200 lg:w-96 lg:flex-none`}
       >
-        {!inLabel || label ? (
-          // Keyed by view, so switching folders starts a fresh list at the top.
-          <ThreadList
-            key={basePath}
-            view={inLabel ? { label: labelId } : { folder }}
-            title={inLabel ? label.name : folderName(folder)}
-            basePath={basePath}
-            selectedId={threadId}
-          />
-        ) : labels.isError ? (
-          <p className="px-4 py-6 text-sm text-stone-500">
-            Sift could not load your labels.{' '}
-            <button type="button" onClick={() => labels.refetch()} className="text-sky-700 underline">
-              Try again
+        <SearchBox inputRef={searchRef} query={query} onOpenPalette={() => setDialog('palette')} />
+        {selectedIds.length > 0 && (
+          <div className="flex items-center gap-3 border-b border-stone-200 bg-sky-50 px-4 py-2 text-sm">
+            <p className="flex-1">{selectedIds.length} selected</p>
+            <button
+              type="button"
+              onClick={archiveTargets}
+              disabled={archive.isPending}
+              className="rounded-md border border-stone-300 bg-white px-2.5 py-1 hover:bg-stone-100 disabled:opacity-60"
+            >
+              Archive
             </button>
-          </p>
-        ) : (
-          <p role="status" className="px-4 py-6 text-sm text-stone-500">
-            Loading label
-          </p>
+            <button type="button" onClick={clearSelection} className="text-sky-700 underline">
+              Clear
+            </button>
+          </div>
         )}
+        <div className="min-h-0 flex-1">{listContent}</div>
       </div>
 
       <div className={`${threadId ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col bg-stone-50`}>
-        <ReadingPane threadId={threadId} closeTo={basePath} />
+        <ReadingPane threadId={threadId} closeTo={listPath} />
+      </div>
+
+      {dialog === 'palette' && (
+        <CommandPalette
+          commands={commands}
+          onClose={() => setDialog(null)}
+          onRun={(command) => {
+            setDialog(null);
+            setQueued(command);
+          }}
+        />
+      )}
+      {dialog === 'help' && <ShortcutHelp onClose={() => setDialog(null)} />}
+
+      <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 flex justify-center">
+        {notice && <p className="rounded-md bg-stone-900 px-4 py-2 text-sm text-white shadow-lg">{notice.text}</p>}
       </div>
     </div>
   );

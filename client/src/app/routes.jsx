@@ -23,11 +23,13 @@ export const routes = [
         element: <RequireSession />,
         children: [
           { path: '/', element: <Navigate to="/inbox" replace /> },
-          // Ranked above the folder route because "label" is a fixed segment.
-          { path: '/label/:labelId/:threadId?', element: <Mailbox /> },
-          // Any single segment lands here; the mailbox shows a 404 for one
-          // that is not a folder.
-          { path: '/:folder/:threadId?', element: <Mailbox /> },
+          // "search" and "label" are fixed segments, so these rank above the
+          // folder route.
+          { path: '/search/:threadId?', element: <Mailbox mode="search" /> },
+          { path: '/label/:labelId/:threadId?', element: <Mailbox mode="label" /> },
+          // Any other single segment lands here; the mailbox shows a 404 for
+          // one that is not a folder.
+          { path: '/:folder/:threadId?', element: <Mailbox mode="folder" /> },
         ],
       },
       { path: '*', element: <NotFound /> },

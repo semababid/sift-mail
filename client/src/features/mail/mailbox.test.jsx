@@ -1,50 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { server } from '../../test/server.js';
-import { fakeAuthApi, fakeMailApi } from '../../test/fake-api.js';
+import { describe, expect, it } from 'vitest';
+import { screen, waitFor, within } from '@testing-library/react';
 import { MARA, SELF, makeMessage, makeThread } from '../../test/mail-fixtures.js';
+import { VIEWPORT_ROWS, findList, giveElementsASize, numbered, scrollToRow, serve } from '../../test/mailbox.js';
 import { renderApp } from '../../test/render.jsx';
 import { ROW_HEIGHT } from './thread-list.jsx';
 
-// jsdom does no layout, so every element measures 0 by 0 and a virtual list
-// decides that no rows fit. Giving elements a height lets the list work out
-// what is in view the way it does in a browser.
-const VIEWPORT_ROWS = 10;
-const measured = ['offsetHeight', 'offsetWidth'];
-const original = Object.fromEntries(
-  measured.map((name) => [name, Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)]),
-);
-
-beforeAll(() => {
-  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => VIEWPORT_ROWS * ROW_HEIGHT });
-  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => 400 });
-});
-
-afterAll(() => {
-  for (const name of measured) Object.defineProperty(HTMLElement.prototype, name, original[name]);
-});
+giveElementsASize();
 
 const UNI = { id: 'label-uni', name: 'Uni', color: '#0ea5e9', threadCount: 1, unreadCount: 1 };
 const WOHNUNG = { id: 'label-wohnung', name: 'Wohnung', color: '#16a34a', threadCount: 0, unreadCount: 0 };
 
-// Signed in as Semab, with this mailbox behind the fake API.
-function serve(fixtures) {
-  const auth = fakeAuthApi();
-  auth.state.signedIn = SELF.address;
-  const mail = fakeMailApi(fixtures);
-  server.use(...auth.handlers, ...mail.handlers);
-  return mail;
-}
-
 const pathOf = (router) => router.state.location.pathname;
-const findList = (title) => screen.findByRole('list', { name: `Conversations in ${title}` });
-const numbered = (count) => Array.from({ length: count }, (_, i) => makeThread({ subject: `Nachricht ${i + 1}` }));
-
-function scrollToRow(list, row) {
-  const scroller = list.parentElement;
-  scroller.scrollTop = row * ROW_HEIGHT;
-  fireEvent.scroll(scroller);
-}
 
 // Each rendered row shows the thread that belongs at its position.
 function expectRowsInPlace(list) {
