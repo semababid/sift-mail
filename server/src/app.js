@@ -5,13 +5,13 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
 import { env, isProd } from './config/env.js';
-import { logger as defaultLogger } from './config/logger.js';
+import { logger as defaultLogger, requestLogging } from './config/logger.js';
 import { apiRouter } from './routes/index.js';
 import { errorHandler } from './middleware/error.js';
 import { apiLimiter } from './middleware/rate-limit.js';
 import { originCheck } from './middleware/origin-check.js';
 
-export function createApp({ logger = defaultLogger } = {}) {
+export function createApp({ logger = defaultLogger, detailedRequestLogs = isProd } = {}) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -23,7 +23,7 @@ export function createApp({ logger = defaultLogger } = {}) {
   if (isProd) app.set('trust proxy', 1);
 
   app.use(helmet());
-  app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/health' } }));
+  app.use(pinoHttp({ logger, ...requestLogging({ detailed: detailedRequestLogs }) }));
   app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '2mb' }));
   app.use(cookieParser());

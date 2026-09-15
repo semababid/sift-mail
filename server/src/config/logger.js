@@ -12,5 +12,32 @@ export const REDACT = {
 export const logger = pino({
   level: env.LOG_LEVEL,
   redact: REDACT,
-  transport: isProd ? undefined : { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss' } },
+  // The process id and host name are the same on every line of a local run,
+  // and the response time is already part of each request line.
+  transport: isProd
+    ? undefined
+    : { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname,responseTime' } },
 });
+
+// How pino-http records each request. In production that is a full structured
+// record, headers included with the session tokens redacted, for a log store
+// to search. In a terminal the same record fills the screen, so development
+// gets one line per request instead: method, path, status and time. There,
+// client errors are logged as warnings and server errors as errors, so they
+// stand out from the rest.
+export function requestLogging({ detailed }) {
+  const options = { autoLogging: { ignore: (req) => req.url === '/health' } };
+  if (detailed) return options;
+
+  return {
+    ...options,
+    customLogLevel: (req, res, err) => {
+      if (err || res.statusCode >= 500) return 'error';
+      return res.statusCode >= 400 ? 'warn' : 'info';
+    },
+    customSuccessMessage: (req, res, responseTime) =>
+      `${req.method} ${req.originalUrl} ${res.statusCode} ${Math.round(responseTime)}ms`,
+    customErrorMessage: (req, res, err) => `${req.method} ${req.originalUrl} ${res.statusCode} ${err.message}`,
+    serializers: { req: () => undefined, res: () => undefined },
+  };
+}

@@ -113,3 +113,38 @@ describe('graceful shutdown', () => {
     }
   });
 });
+
+describe('production request logs', () => {
+  it('records each request in full, with session tokens redacted', async () => {
+    const port = await freePort();
+    const child = spawn(process.execPath, ['src/index.js'], {
+      cwd: serverDir,
+      env: childEnv({ PORT: String(port), NODE_ENV: 'production', LOG_LEVEL: 'info' }),
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk;
+    });
+    const exited = new Promise((resolve) => child.on('exit', resolve));
+
+    try {
+      await waitUntilHealthy(port);
+      await fetch(`http://[::1]:${port}/api/auth/me`, {
+        headers: { cookie: 'sift_access=SECRET_COOKIE_VALUE', authorization: 'Bearer SECRET_BEARER_VALUE' },
+      });
+      child.kill('SIGTERM');
+      await exited;
+    } finally {
+      child.kill('SIGKILL');
+    }
+
+    const records = output.trim().split('\n').map((line) => JSON.parse(line));
+    const me = records.find((record) => record.req?.url === '/api/auth/me');
+    expect(me, 'a full record for the request').toBeDefined();
+    expect(me.res.statusCode).toBe(401);
+    expect(me.req.headers).toMatchObject({ cookie: '[redacted]', authorization: '[redacted]' });
+    expect(output).not.toContain('SECRET_COOKIE_VALUE');
+    expect(output).not.toContain('SECRET_BEARER_VALUE');
+  });
+});

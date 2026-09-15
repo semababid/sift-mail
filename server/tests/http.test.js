@@ -117,7 +117,8 @@ describe('request logging', () => {
     const chunks = [];
     const stream = new PassThrough();
     stream.on('data', (chunk) => chunks.push(chunk.toString()));
-    const logged = createApp({ logger: pino({ level: 'info', redact: REDACT }, stream) });
+    // The production record, which is the one that carries the headers.
+    const logged = createApp({ logger: pino({ level: 'info', redact: REDACT }, stream), detailedRequestLogs: true });
 
     await request(logged)
       .post('/api/auth/register')
@@ -133,5 +134,29 @@ describe('request logging', () => {
     expect(output).not.toContain('SECRET_COOKIE_VALUE');
     expect(output).not.toContain('SECRET_BEARER_VALUE');
     expect(output).not.toMatch(/sift_(access|refresh)=eyJ/);
+  });
+
+  it('writes one short line per request in development, with no headers', async () => {
+    const chunks = [];
+    const stream = new PassThrough();
+    stream.on('data', (chunk) => chunks.push(chunk.toString()));
+    const logged = createApp({ logger: pino({ level: 'info', redact: REDACT }, stream), detailedRequestLogs: false });
+
+    await request(logged).post('/api/auth/register').set('Cookie', 'sift_access=SECRET_COOKIE_VALUE').send(credentials);
+    await request(logged).get('/api/nothing-here');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const records = chunks.join('').trim().split('\n').map((line) => JSON.parse(line));
+    expect(records.map((r) => r.msg)).toEqual([
+      expect.stringMatching(/^POST \/api\/auth\/register 201 \d+ms$/),
+      expect.stringMatching(/^GET \/api\/nothing-here 404 \d+ms$/),
+    ]);
+    // pino's numeric levels: 30 is info, 40 is warn.
+    expect(records.map((r) => r.level)).toEqual([30, 40]);
+    for (const record of records) {
+      expect(record).not.toHaveProperty('req');
+      expect(record).not.toHaveProperty('res');
+    }
+    expect(chunks.join('')).not.toContain('SECRET_COOKIE_VALUE');
   });
 });
