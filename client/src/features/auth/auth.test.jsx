@@ -1,15 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { server } from '../../test/server.js';
-import { fakeAuthApi } from '../../test/fake-api.js';
+import { fakeAuthApi, fakeMailApi } from '../../test/fake-api.js';
 import { renderApp } from '../../test/render.jsx';
 import { safeRedirect } from './session.js';
 
 let api;
+let mail;
 
 beforeEach(() => {
   api = fakeAuthApi();
-  server.use(...api.handlers);
+  mail = fakeMailApi();
+  server.use(...api.handlers, ...mail.handlers);
 });
 
 const pathOf = (router) => `${router.state.location.pathname}${router.state.location.search}`;
@@ -20,6 +22,11 @@ async function signInThroughForm(user, email = 'semab@sift.example', password = 
   await user.click(screen.getByRole('button', { name: 'Sign in' }));
 }
 
+// The mailbox is on screen, with this person signed in.
+async function expectSignedInAs(name) {
+  expect(await screen.findByRole('region', { name: 'Signed in' })).toHaveTextContent(name);
+}
+
 describe('signing in', () => {
   it('sends a visitor without a session to the login page', async () => {
     const { router } = renderApp('/');
@@ -28,12 +35,12 @@ describe('signing in', () => {
   });
 
   it('signs in and returns to the page first asked for', async () => {
-    const { router, user } = renderApp('/?folder=sent');
+    const { router, user } = renderApp('/sent?page=2');
     await screen.findByRole('heading', { name: 'Sign in' });
 
     await signInThroughForm(user);
-    expect(await screen.findByText(/Signed in as Semab/)).toBeInTheDocument();
-    expect(pathOf(router)).toBe('/?folder=sent');
+    await expectSignedInAs('Semab');
+    expect(pathOf(router)).toBe('/sent?page=2');
   });
 
   it('explains a wrong password, clears it, and keeps the email', async () => {
@@ -64,14 +71,14 @@ describe('signing in', () => {
 
     await signInThroughForm(user);
     expect(await screen.findByRole('button', { name: 'Signing in' })).toBeDisabled();
-    expect(await screen.findByText(/Signed in as Semab/)).toBeInTheDocument();
+    await expectSignedInAs('Semab');
   });
 
   it('sends someone already signed in away from the login page', async () => {
     api.state.signedIn = 'semab@sift.example';
     const { router } = renderApp('/login');
-    expect(await screen.findByText(/Signed in as Semab/)).toBeInTheDocument();
-    expect(pathOf(router)).toBe('/');
+    await expectSignedInAs('Semab');
+    expect(pathOf(router)).toBe('/inbox');
   });
 
   it('offers to try again when the session cannot be checked', async () => {
@@ -82,7 +89,7 @@ describe('signing in', () => {
     api.state.meStatus = null;
     api.state.signedIn = 'semab@sift.example';
     await user.click(screen.getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByText(/Signed in as Semab/)).toBeInTheDocument();
+    await expectSignedInAs('Semab');
   });
 });
 
@@ -99,8 +106,8 @@ describe('creating an account', () => {
     await screen.findByRole('heading', { name: 'Create an account' });
 
     await fillRegistration(user);
-    expect(await screen.findByText(/Signed in as Mara Klein/)).toBeInTheDocument();
-    expect(pathOf(router)).toBe('/');
+    await expectSignedInAs('Mara Klein');
+    expect(pathOf(router)).toBe('/inbox');
   });
 
   it('points at the email field when the address is already taken', async () => {
@@ -133,41 +140,46 @@ describe('creating an account', () => {
   });
 
   it('keeps where the visitor was headed when they switch from signing in to registering', async () => {
-    const { router, user } = renderApp('/?folder=sent');
+    const { router, user } = renderApp('/sent');
     await screen.findByRole('heading', { name: 'Sign in' });
 
     await user.click(screen.getByRole('link', { name: 'Create an account' }));
     await screen.findByRole('heading', { name: 'Create an account' });
     await fillRegistration(user);
-    await screen.findByText(/Signed in as Mara Klein/);
-    expect(pathOf(router)).toBe('/?folder=sent');
+    await expectSignedInAs('Mara Klein');
+    expect(pathOf(router)).toBe('/sent');
   });
 });
 
 describe('leaving', () => {
   it('signs out, returns to login, and forgets what was cached', async () => {
     api.state.signedIn = 'semab@sift.example';
-    const { router, user, queryClient } = renderApp('/');
-    await screen.findByText(/Signed in as Semab/);
-    await waitFor(() => expect(queryClient.getQueryData(['health'])).toBeDefined());
-    const healthChecks = api.count('GET /health');
+    const { router, user, queryClient } = renderApp('/inbox');
+    await expectSignedInAs('Semab');
+    const inbox = ['threads', { folder: 'inbox' }];
+    await waitFor(() => expect(queryClient.getQueryData(inbox)).toBeDefined());
+    await waitFor(() => expect(queryClient.getQueryData(['labels'])).toBeDefined());
+    const listLoads = mail.count('GET /api/threads');
+    const labelLoads = mail.count('GET /api/labels');
     const sessionChecks = api.count('GET /api/auth/me');
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(pathOf(router)).toBe('/login');
-    expect(queryClient.getQueryData(['health'])).toBeUndefined();
+    expect(queryClient.getQueryData(inbox)).toBeUndefined();
+    expect(queryClient.getQueryData(['labels'])).toBeUndefined();
     expect(api.count('POST /api/auth/logout')).toBe(1);
-    // Nothing fetched the signed-in page's data back after it was dropped, and
-    // nothing asked the server about the session that had just ended.
-    expect(api.count('GET /health')).toBe(healthChecks);
+    // Nothing fetched the mailbox's data back after it was dropped, and nothing
+    // asked the server about the session that had just ended.
+    expect(mail.count('GET /api/threads')).toBe(listLoads);
+    expect(mail.count('GET /api/labels')).toBe(labelLoads);
     expect(api.count('GET /api/auth/me')).toBe(sessionChecks);
   });
 
   it('goes back to login when the session ends on the server, and stops asking', async () => {
     api.state.signedIn = 'semab@sift.example';
     const { router, queryClient } = renderApp('/');
-    await screen.findByText(/Signed in as Semab/);
+    await expectSignedInAs('Semab');
 
     // The session ends elsewhere. The next check fails, the refresh is refused,
     // and the api client reports the session as expired.
@@ -186,8 +198,8 @@ describe('leaving', () => {
 describe('where sign-in may send someone', () => {
   it.each([
     ['/', '/'],
-    ['/?folder=sent', '/?folder=sent'],
-    ['/threads/abc', '/threads/abc'],
+    ['/sent?page=2', '/sent?page=2'],
+    ['/inbox/abc', '/inbox/abc'],
     ['//evil.example', '/'],
     ['/\\evil.example', '/'],
     ['https://evil.example', '/'],

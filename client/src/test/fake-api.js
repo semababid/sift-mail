@@ -67,3 +67,74 @@ export function fakeAuthApi({ users = [{ email: 'semab@sift.example', password: 
 
   return { handlers, state, count: (call) => calls.filter((c) => c === call).length };
 }
+
+const HIDDEN_FROM_LABELS = ['trash', 'spam'];
+
+// A stand-in for the mail routes the mailbox reads, filtering the way the real
+// list does. The cursor is simply the position the next page starts at.
+export function fakeMailApi({ threads = [], messages = {}, labels = [], pageSize = 50 } = {}) {
+  const state = { threads, messages, labels, listStatus: null, nextPageStatus: null, batches: [] };
+  const calls = [];
+
+  const record = (request) => {
+    const url = new URL(request.url);
+    calls.push({ call: `${request.method} ${url.pathname}`, url });
+  };
+  const failure = (status) => HttpResponse.json({ error: 'something went wrong', code: 'internal' }, { status });
+
+  const inView = (thread, folder, label) => {
+    if (!label) return thread.folders.includes(folder ?? 'inbox');
+    if (!thread.labelIds.includes(label)) return false;
+    return folder ? thread.folders.includes(folder) : thread.folders.some((f) => !HIDDEN_FROM_LABELS.includes(f));
+  };
+
+  const handlers = [
+    http.get('/api/threads', ({ request }) => {
+      record(request);
+      const params = new URL(request.url).searchParams;
+      const cursor = params.get('cursor');
+      const status = cursor ? state.nextPageStatus : state.listStatus;
+      if (status) return failure(status);
+
+      const matching = state.threads
+        .filter((thread) => inView(thread, params.get('folder'), params.get('label')))
+        .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
+      const start = cursor ? Number(cursor) : 0;
+      const end = start + pageSize;
+      return HttpResponse.json({
+        threads: matching.slice(start, end),
+        nextCursor: end < matching.length ? String(end) : null,
+      });
+    }),
+
+    http.get('/api/threads/:id', ({ request, params }) => {
+      record(request);
+      const thread = state.threads.find((t) => t.id === params.id);
+      if (!thread) return HttpResponse.json({ error: 'thread not found', code: 'not_found' }, { status: 404 });
+      return HttpResponse.json({ thread, messages: state.messages[thread.id] ?? [] });
+    }),
+
+    http.post('/api/threads/batch', async ({ request }) => {
+      record(request);
+      const body = await request.json();
+      state.batches.push(body);
+      if (body.action !== 'markRead') return failure(400);
+
+      state.threads = state.threads.map((t) => (body.ids.includes(t.id) ? { ...t, hasUnread: false } : t));
+      return HttpResponse.json({ threads: state.threads.filter((t) => body.ids.includes(t.id)) });
+    }),
+
+    http.get('/api/labels', ({ request }) => {
+      record(request);
+      return HttpResponse.json({ labels: state.labels });
+    }),
+  ];
+
+  return {
+    handlers,
+    state,
+    count: (call) => calls.filter((c) => c.call === call).length,
+    // The cursor of every list request so far, null for a first page.
+    cursors: () => calls.filter((c) => c.call === 'GET /api/threads').map((c) => c.url.searchParams.get('cursor')),
+  };
+}
