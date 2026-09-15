@@ -1,8 +1,4 @@
 import { createBrowserRouter } from 'react-router';
-import Home from '../pages/home.jsx';
-import NotFound from '../pages/not-found.jsx';
+import { routes } from './routes.jsx';
 
-export const router = createBrowserRouter([
-  { path: '/', element: <Home /> },
-  { path: '*', element: <NotFound /> },
-]);
+export const router = createBrowserRouter(routes);
