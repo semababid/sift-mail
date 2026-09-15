@@ -7,7 +7,7 @@ import request from 'supertest';
 import { connect, disconnect, credentials } from './helpers.js';
 import { createApp } from '../src/app.js';
 import { User, Thread, Message, IntentLabel } from '../src/models/index.js';
-import { THREADS as WRITTEN, FILLER_SUBJECTS } from '../scripts/seed-data.js';
+import { THREADS as WRITTEN, SENDERS, NOTIFICATIONS, CONVERSATIONS } from '../scripts/seed-data.js';
 
 const serverDir = path.resolve(import.meta.dirname, '..');
 
@@ -127,7 +127,9 @@ describe('seeded corpus', () => {
   });
 
   it('plants the deposit thread where only its own wording can find it', async () => {
-    const needle = await Thread.findOne({ userId: corpus.user._id, subject: /Wohnungsübergabe/ });
+    // By exact subject. The seeded drafts are titled "Re: <subject>" of a
+    // hand-written thread, so a pattern can pick up a draft instead.
+    const needle = await Thread.findOne({ userId: corpus.user._id, subject: 'Wohnungsübergabe Parkstraße 14' });
     expect(needle).not.toBeNull();
 
     const threadsMatching = async (search) =>
@@ -160,29 +162,107 @@ describe('ground truth for stage 6', () => {
     expect(await IntentLabel.countDocuments({ messageId: { $in: mine } })).toBe(0);
   });
 
-  // Filler threads only. The hand-written ones carry their own labels, and
-  // some of those are single messages too.
-  const fillerSubject = new RegExp(
-    `^(${FILLER_SUBJECTS.map((s) => s.replace('{n}', '\\d+').replace(/[.?]/g, '\\$&')).join('|')})$`,
-  );
-  const filler = () => corpus.threads.filter((t) => fillerSubject.test(t.subject));
+  // Each subject template as a pattern, so a generated thread can be traced back
+  // to the notification or conversation it came from.
+  const patternFor = (subject) =>
+    new RegExp(`^${subject.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{\w+\}/g, '.+?')}$`);
+  const originOf = (thread) =>
+    NOTIFICATIONS.find((n) => patternFor(n.subject).test(thread.subject)) ??
+    CONVERSATIONS.find((c) => patternFor(c.subject).test(thread.subject));
+  const kindOf = new Map(SENDERS.map((sender) => [sender.address, sender.kind]));
+  const labelsById = async () =>
+    new Map((await IntentLabel.find({ userId: corpus.user._id }).lean()).map((l) => [String(l.messageId), l.label]));
 
-  it('labels a lone notification as read only, not as needing a reply', async () => {
-    const singles = filler().filter((t) => t.messageCount === 1);
-    expect(singles.length).toBeGreaterThan(100);
-    const ids = singles.map((t) => corpus.byThread.get(String(t._id))[0]._id);
-    const labels = await IntentLabel.find({ messageId: { $in: ids } }).distinct('label');
-    expect(labels).toEqual(['read_only']);
+  it('sends automated mail only from organisations, unanswered, with its own bucket', async () => {
+    const labels = await labelsById();
+    const automated = corpus.threads.filter((t) => NOTIFICATIONS.includes(originOf(t)));
+    expect(automated.length).toBeGreaterThan(300);
+
+    for (const thread of automated) {
+      const messages = corpus.byThread.get(String(thread._id));
+      expect(messages).toHaveLength(1);
+      expect(kindOf.get(messages[0].from.address)).toBe('organisation');
+      expect(labels.get(String(messages[0]._id))).toBe(originOf(thread).intent);
+    }
   });
 
-  it('labels an exchange by who spoke last', async () => {
-    const [waiting] = filler().filter((t) => t.messageCount === 2);
-    const [needs] = filler().filter((t) => t.messageCount === 3);
-    const labelOf = async (thread) =>
-      (await IntentLabel.findOne({ messageId: corpus.byThread.get(String(thread._id))[0]._id })).label;
+  it('holds conversations only with people', () => {
+    const talks = corpus.threads.filter((t) => CONVERSATIONS.includes(originOf(t)));
+    expect(talks.length).toBeGreaterThan(300);
+    const kinds = new Set(talks.map((t) => kindOf.get(corpus.byThread.get(String(t._id))[0].from.address)));
+    expect(kinds).toEqual(new Set(['person']));
+  });
 
-    expect(await labelOf(waiting)).toBe('waiting_on_them');
-    expect(await labelOf(needs)).toBe('needs_reply');
+  it('never has me send back a line the other side wrote, or repeat a line within a thread', () => {
+    const echoes = [];
+    const repeats = [];
+    for (const [id, messages] of corpus.byThread) {
+      const theirs = new Set(messages.filter((m) => m.from.address !== credentials.email).map((m) => m.bodyText));
+      if (messages.some((m) => m.from.address === credentials.email && theirs.has(m.bodyText))) echoes.push(id);
+      const bodies = messages.map((m) => m.bodyText);
+      if (new Set(bodies).size < bodies.length) repeats.push(id);
+    }
+    expect(echoes).toEqual([]);
+    expect(repeats).toEqual([]);
+  });
+
+  // A script line as a pattern that captures the weekday its placeholder became.
+  // Weekdays written literally into a line, like "Dienstag oder Mittwoch", are
+  // ordinary text and are not captured.
+  const weekdayIn = (template, text) => {
+    if (!template.includes('{weekday}')) return undefined;
+    const source = template
+      .replace(/[.*+?^$()|[\]\\]/g, '\\$&')
+      .replace('{weekday}', '(?<weekday>\\w+)')
+      .replaceAll('{weekday}', '\\k<weekday>')
+      .replace(/\{\w+\}/g, '[\\s\\S]+?');
+    return new RegExp(`^${source}$`).exec(text)?.groups?.weekday;
+  };
+
+  it('fills placeholders once per thread, so its weekday stays the same throughout', () => {
+    let checked = 0;
+    for (const thread of corpus.threads) {
+      const origin = originOf(thread);
+      if (!CONVERSATIONS.includes(origin)) continue;
+
+      const mentions = [
+        weekdayIn(origin.subject, thread.subject),
+        ...corpus.byThread.get(String(thread._id)).map((m, i) => weekdayIn(origin.lines[i].text, m.bodyText)),
+      ].filter(Boolean);
+      // Only a thread that names its weekday at least twice can disagree with itself.
+      if (mentions.length < 2) continue;
+
+      expect([...new Set(mentions)], thread.subject).toHaveLength(1);
+      checked += 1;
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  it('labels each message in a conversation by what it asks at the moment it arrives', async () => {
+    const labels = await labelsById();
+    let checked = 0;
+    for (const thread of corpus.threads) {
+      const origin = originOf(thread);
+      if (!CONVERSATIONS.includes(origin)) continue;
+      corpus.byThread.get(String(thread._id)).forEach((message, i) => {
+        // Their lines are the even ones. Mine are never labelled.
+        if (i % 2 === 1) return;
+        expect(labels.get(String(message._id))).toBe(origin.lines[i].intent);
+        checked += 1;
+      });
+    }
+    expect(checked).toBeGreaterThan(300);
+  });
+
+  it('has plenty of examples in every triage bucket', async () => {
+    const rows = await IntentLabel.aggregate([
+      { $match: { userId: corpus.user._id } },
+      { $group: { _id: '$label', n: { $sum: 1 } } },
+    ]);
+    const counts = Object.fromEntries(rows.map((row) => [row._id, row.n]));
+    for (const bucket of ['needs_reply', 'waiting_on_them', 'do_at_a_time', 'read_only']) {
+      expect(counts[bucket] ?? 0, bucket).toBeGreaterThan(50);
+    }
   });
 
   it('writes each hand-written conversation exactly once', async () => {

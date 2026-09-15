@@ -6,7 +6,7 @@ import { User, Thread, Message, Label, RefreshToken, IntentLabel } from '../src/
 import { register } from '../src/services/auth.service.js';
 import { makeRng } from '../src/lib/random.js';
 import { normalizeSubject, makeSnippet } from '../src/lib/text.js';
-import { SENDERS, THREADS, FILLER_SUBJECTS, FILLER_BODIES, FILLER_REPLIES } from './seed-data.js';
+import { SENDERS, THREADS, NOTIFICATIONS, CONVERSATIONS } from './seed-data.js';
 
 const { values: opts } = parseArgs({
   options: {
@@ -118,12 +118,12 @@ function buildThread({ user, template, sender, labelIds }) {
         source: 'default',
         classifiedAt: null,
       },
-      // Only inbound mail is labelled. The bucket says what a message asks of
-      // me, and my own replies ask nothing. For a thread with several inbound
-      // messages this is the thread's overall bucket stamped on each of them,
-      // which is approximate: stage 6.5 refines it into per-message labels
-      // when the eval set is built.
-      seedIntent: fromSender ? template.intent : null,
+      // Only inbound mail is labelled: the bucket says what a message asks of
+      // me, and my own replies ask nothing. Generated conversations label each
+      // inbound message by its own line. The hand-written threads carry one
+      // bucket for the whole thread, stamped on each inbound message, which is
+      // approximate for the few of them that run to several messages.
+      seedIntent: fromSender ? (template.lineIntents?.[i] ?? template.intent) : null,
     };
   });
 
@@ -158,28 +158,62 @@ function buildThread({ user, template, sender, labelIds }) {
   return { thread, messages };
 }
 
-// Thread depth, roughly as a mailbox actually looks: most threads are a single
-// notification, a quarter get a short exchange, a few run on. Without this the
-// corpus averages one message per thread and the reading pane has nothing to
-// show.
-function fillerDepth() {
-  const roll = rng.next();
-  if (roll < 0.58) return 0;
-  if (roll < 0.85) return rng.int(1, 2);
-  return rng.int(3, 7);
+const WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag'];
+const MONTHS = ['März', 'April', 'Mai', 'Juni', 'Juli', 'September', 'Oktober'];
+const TIMES = ['9:00', '10:30', '14:00', '16:30', '18:00'];
+
+// One set of placeholder values per thread, so the weekday in the subject is
+// the weekday in every message under it.
+function slotValues() {
+  const month = rng.pick(MONTHS);
+  return {
+    weekday: rng.pick(WEEKDAYS),
+    time: rng.pick(TIMES),
+    month,
+    date: `${rng.int(2, 28)}. ${month}`,
+    n: String(rng.int(2, 99)),
+    amount: `${rng.int(12, 95)},${String(rng.int(0, 99)).padStart(2, '0')}`,
+  };
 }
 
+const fill = (text, slots) => text.replace(/\{(\w+)\}/g, (_, key) => slots[key] ?? `{${key}}`);
+
+// How far a conversation got before the seed stopped it: often after the first
+// message or one exchange, sometimes several rounds. Capped by the script.
+function conversationLength(max) {
+  const roll = rng.next();
+  const wanted = roll < 0.25 ? 1 : roll < 0.55 ? 2 : roll < 0.75 ? 3 : rng.int(4, 7);
+  return Math.min(wanted, max);
+}
+
+// A little over half the filler is automated mail, which nobody answers. The
+// rest is exchanges with people, cut off at a random point. Senders come from
+// the roles the notification or conversation allows, so the landlord never
+// sends a usage report and I never answer with a line the other side wrote.
 function fillerTemplate() {
-  const n = rng.int(2, 28);
-  const depth = fillerDepth();
+  const slots = slotValues();
+
+  if (rng.chance(0.55)) {
+    const note = rng.pick(NOTIFICATIONS);
+    return {
+      roles: note.roles,
+      subject: fill(note.subject, slots),
+      body: fill(note.body, slots),
+      replies: [],
+      intent: note.intent,
+    };
+  }
+
+  const conversation = rng.pick(CONVERSATIONS);
+  const lines = conversation.lines.slice(0, conversationLength(conversation.lines.length));
   return {
-    subject: rng.pick(FILLER_SUBJECTS).replaceAll('{n}', String(n)),
-    body: rng.pick(FILLER_BODIES),
-    replies: Array.from({ length: depth }, () => rng.pick(FILLER_REPLIES)),
-    // A lone notification is just to be read. Once there is an exchange,
-    // whoever wrote last decides what the thread is waiting on: an inbound
-    // message with no answer from me needs one, my own last word does not.
-    intent: depth === 0 ? 'read_only' : depth % 2 === 0 ? 'needs_reply' : 'waiting_on_them',
+    roles: conversation.roles,
+    subject: fill(conversation.subject, slots),
+    body: fill(lines[0].text, slots),
+    replies: lines.slice(1).map((line) => fill(line.text, slots)),
+    // One entry per message. Their lines carry a bucket; mine carry none and
+    // are never labelled.
+    lineIntents: lines.map((line) => line.intent ?? null),
   };
 }
 
@@ -233,9 +267,8 @@ async function main() {
     // corpus with copies of the same conversation, and a search that finds
     // five copies of the deposit thread looks better than it is.
     const template = i < THREADS.length ? THREADS[i] : fillerTemplate();
-    const sender = template.role
-      ? rng.pick(SENDERS.filter((s) => s.role === template.role))
-      : rng.pick(SENDERS);
+    const roles = template.roles ?? [template.role];
+    const sender = rng.pick(SENDERS.filter((s) => roles.includes(s.role)));
 
     const labelName = labelForRole[sender.role];
     const labelIds = labelName && rng.chance(0.7) ? [labelByName.get(labelName)] : [];

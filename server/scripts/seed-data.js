@@ -1,26 +1,26 @@
 // The cast. A handful of recurring senders reads more like a real mailbox than
 // a thousand strangers would, and it gives the later stages something to work
 // with: a thread that actually runs back and forth, a sender whose mail is
-// always noise, one who always wants an answer.
+// always noise, one who always wants an answer. `kind` separates organisations,
+// whose mail is automated, from people, who write back.
 export const SENDERS = [
-  { name: 'Wolfgang Brandt', address: 'w.brandt@hausverwaltung.example', role: 'landlord' },
-  { name: 'Prüfungsamt', address: 'pruefungsamt@uni.example', role: 'university' },
-  { name: 'Studierendensekretariat', address: 'immatrikulation@uni.example', role: 'university' },
-  { name: 'Lena Hofmann', address: 'l.hofmann@autowerk.example', role: 'recruiter' },
-  { name: 'Priya Raghavan', address: 'priya.raghavan@techkonzern.example', role: 'recruiter' },
-  { name: 'Stadtbank', address: 'service@stadtbank.example', role: 'bank' },
-  { name: 'Krankenkasse', address: 'noreply@krankenkasse.example', role: 'insurance' },
-  { name: 'Paketdienst', address: 'sendungsverfolgung@paketdienst.example', role: 'delivery' },
-  { name: 'Jonas Weber', address: 'jonas.weber94@mail.example', role: 'friend' },
-  { name: 'Aisha Kamara', address: 'aisha.kamara@uni.example', role: 'classmate' },
-  { name: 'Data Meetup Berlin', address: 'hello@datameetup.example', role: 'newsletter' },
-  { name: 'Paper Digest', address: 'digest@paperdigest.example', role: 'newsletter' },
+  { name: 'Wolfgang Brandt', address: 'w.brandt@hausverwaltung.example', role: 'landlord', kind: 'person' },
+  { name: 'Prüfungsamt', address: 'pruefungsamt@uni.example', role: 'university', kind: 'organisation' },
+  { name: 'Studierendensekretariat', address: 'immatrikulation@uni.example', role: 'university', kind: 'organisation' },
+  { name: 'Lena Hofmann', address: 'l.hofmann@autowerk.example', role: 'recruiter', kind: 'person' },
+  { name: 'Priya Raghavan', address: 'priya.raghavan@techkonzern.example', role: 'recruiter', kind: 'person' },
+  { name: 'Stadtbank', address: 'service@stadtbank.example', role: 'bank', kind: 'organisation' },
+  { name: 'Krankenkasse', address: 'noreply@krankenkasse.example', role: 'insurance', kind: 'organisation' },
+  { name: 'Paketdienst', address: 'sendungsverfolgung@paketdienst.example', role: 'delivery', kind: 'organisation' },
+  { name: 'Jonas Weber', address: 'jonas.weber94@mail.example', role: 'friend', kind: 'person' },
+  { name: 'Aisha Kamara', address: 'aisha.kamara@uni.example', role: 'classmate', kind: 'person' },
+  { name: 'Data Meetup Berlin', address: 'hello@datameetup.example', role: 'newsletter', kind: 'organisation' },
+  { name: 'Paper Digest', address: 'digest@paperdigest.example', role: 'newsletter', kind: 'organisation' },
 ];
 
 // Each template is one thread. `replies` are what comes back after the opener,
-// alternating sender and recipient. `needsReply` and `intent` are what a human
-// would label the thread; stage 6 scores its classifier against these instead
-// of me hand-labelling two hundred messages later.
+// alternating sender and recipient. `intent` is what a human would label the
+// thread; stage 6 scores its classifier against it.
 export const THREADS = [
   {
     role: 'landlord',
@@ -119,41 +119,210 @@ export const THREADS = [
   },
 ];
 
-// Filler, so the corpus reaches a few thousand messages without thirteen
-// templates repeating in an obvious loop. Deliberately mundane: the interesting
-// mail is above, and search needs a haystack to find it in.
-export const FILLER_SUBJECTS = [
-  'Rechnung {n} verfügbar',
-  'Terminerinnerung: {n}. des Monats',
-  'Ihre Bestellung {n} wurde versandt',
-  'Neuer Login auf Ihrem Konto',
-  'Wartungsarbeiten am Wochenende',
-  'Vorlesungsunterlagen Woche {n} online',
-  'Änderung der Öffnungszeiten',
-  'Umfrage: Wie war Ihr Semester?',
-  'Beitragsanpassung zum Jahreswechsel',
-  'Protokoll der Sitzung vom {n}.',
-  'Reminder: room booking {n} expires',
-  'Your monthly usage report',
+// Filler, so the corpus reaches a few thousand messages. Placeholders in braces
+// are filled once per thread, so a weekday in the subject is the same weekday
+// in every message under it. None of it uses a word from the search
+// evaluation, so the filler cannot move the keyword baseline.
+
+// Automated mail from organisations. Nobody answers it: it is read and
+// forgotten, or it asks for something to be done by a date. `roles` says who
+// may send it, so a classmate never sends a bank statement.
+export const NOTIFICATIONS = [
+  {
+    roles: ['bank'],
+    subject: 'Ihr Kontoauszug für {month} ist da',
+    body: 'Guten Tag,\n\nIhr Kontoauszug für {month} steht im Online-Banking bereit. Sie finden ihn unter Postfach > Dokumente.\n\nIhre Stadtbank',
+    intent: 'read_only',
+  },
+  {
+    roles: ['bank'],
+    subject: 'Neuer Login auf Ihrem Konto',
+    body: 'Am {date} um {time} Uhr hat sich ein neues Gerät in Ihr Online-Banking eingeloggt. Wenn Sie das waren, müssen Sie nichts tun. Andernfalls sperren Sie bitte umgehend Ihren Zugang.',
+    intent: 'read_only',
+  },
+  {
+    roles: ['bank'],
+    subject: 'Bitte bestätigen Sie Ihre Anschrift bis {date}',
+    body: 'Guten Tag,\n\nim Rahmen der jährlichen Datenprüfung bitten wir Sie, Ihre Anschrift bis zum {date} im Online-Banking zu bestätigen. Danach schränken wir einzelne Funktionen vorübergehend ein.\n\nIhre Stadtbank',
+    intent: 'do_at_a_time',
+  },
+  {
+    roles: ['insurance'],
+    subject: 'Beitragsanpassung zum Jahreswechsel',
+    body: 'Guten Tag,\n\nzum 1. Januar ändert sich der Zusatzbeitrag. Ihr neuer Monatsbeitrag beträgt {amount} EUR. Sie müssen nichts unternehmen.\n\nIhre Krankenkasse',
+    intent: 'read_only',
+  },
+  {
+    roles: ['insurance'],
+    subject: 'Erinnerung: Vorsorgetermin bis {date} vereinbaren',
+    body: 'Guten Tag,\n\nIhr Anspruch auf die jährliche Vorsorgeuntersuchung läuft am {date} ab. Vereinbaren Sie bis dahin einen Termin in einer Praxis Ihrer Wahl.\n\nIhre Krankenkasse',
+    intent: 'do_at_a_time',
+  },
+  {
+    roles: ['delivery'],
+    subject: 'Ihre Bestellung {n} wurde versandt',
+    body: 'Ihre Bestellung {n} ist unterwegs. Die voraussichtliche Zustellung ist am {date}. Den aktuellen Stand sehen Sie in der Sendungsverfolgung.',
+    intent: 'read_only',
+  },
+  {
+    roles: ['delivery'],
+    subject: 'Abholung in der Filiale bis {date}',
+    body: 'Wir konnten Sie leider nicht antreffen. Ihre Sendung {n} liegt bis zum {date} in der Filiale Lindenstraße zur Abholung bereit. Bitte bringen Sie einen Ausweis mit.',
+    intent: 'do_at_a_time',
+  },
+  {
+    roles: ['university'],
+    subject: 'Vorlesungsunterlagen Woche {n} online',
+    body: 'Liebe Studierende,\n\ndie Unterlagen für Woche {n} sind im Lernportal hochgeladen. Die Übungsaufgaben werden in der nächsten Sitzung besprochen.',
+    intent: 'read_only',
+  },
+  {
+    roles: ['university'],
+    subject: 'Änderung der Öffnungszeiten',
+    body: 'Das Büro ist ab dem {date} nur dienstags und donnerstags von 9 bis 12 Uhr geöffnet. Anfragen per E-Mail werden weiterhin bearbeitet.',
+    intent: 'read_only',
+  },
+  {
+    roles: ['university'],
+    subject: 'Beitrag für das Studienjahr bis {date} zahlen',
+    body: 'Guten Tag,\n\nder Beitrag für das kommende Studienjahr muss bis zum {date} eingegangen sein. Nach Ablauf der Frist erfolgt die Exmatrikulation.',
+    intent: 'do_at_a_time',
+  },
+  {
+    roles: ['newsletter'],
+    subject: 'Meetup am {date}: two talks, pizza included',
+    body: 'Hi everyone,\n\nour next meetup is on {date} at {time}. Two talks: one on feature stores, one on testing data pipelines. Seats are limited.\n\nSee you there',
+    intent: 'read_only',
+  },
+  {
+    roles: ['newsletter'],
+    subject: 'Your weekly reading list',
+    body: 'This week: a practical guide to mixed precision training, a comparison of tokenizers for German text, and notes from a talk on evaluating retrieval systems.\n\nManage your subscription at any time.',
+    intent: 'read_only',
+  },
+  {
+    roles: ['newsletter'],
+    subject: 'Your monthly usage report',
+    body: 'Here is your usage for last month: {n} documents indexed and {amount} hours of compute. You are within the free plan.',
+    intent: 'read_only',
+  },
 ];
 
-// Replies for filler threads. Real mailboxes are mostly one-message threads
-// with a minority that actually run back and forth, so these get sampled
-// against that distribution rather than applied to everything.
-export const FILLER_REPLIES = [
-  'Guten Tag,\n\nvielen Dank für die schnelle Rückmeldung. Ich schaue mir das an und melde mich.\n\nViele Grüße\nSemab',
-  'Danke, das hat geklappt. Von meiner Seite ist damit alles geklärt.',
-  'Hallo,\n\nkönnten Sie mir dazu noch die genaue Frist nennen? Ich möchte nichts verpassen.\n\nBeste Grüße',
-  'Die Frist läuft bis zum Ende des Monats. Danach ist eine Bearbeitung nur mit Begründung möglich.',
-  'Alles klar, dann warte ich auf Ihre Nachricht. Schönes Wochenende.',
-  'Kurze Rückfrage: gilt das auch für Studierende im letzten Semester?',
-  'Ja, das gilt unabhängig vom Semester. Bei Fragen gern jederzeit melden.',
-];
-
-export const FILLER_BODIES = [
-  'Guten Tag,\n\nim Anhang finden Sie die Unterlagen zu Ihrem Vorgang. Bei Rückfragen erreichen Sie uns unter der bekannten Nummer.\n\nMit freundlichen Grüßen',
-  'Dies ist eine automatisch generierte Nachricht. Bitte antworten Sie nicht auf diese E-Mail.',
-  'Hallo,\n\nkurze Info: der Termin bleibt wie besprochen. Ich melde mich, falls sich etwas ändert.\n\nGrüße',
-  'Hi,\n\nthis is a routine notification about your account. No action is required on your side.\n\nThanks',
-  'Sehr geehrte Damen und Herren,\n\nwir möchten Sie darüber informieren, dass die Bearbeitung Ihres Anliegens noch andauert. Wir bitten um Ihr Verständnis.\n\nFreundliche Grüße',
+// Exchanges with people. Lines alternate, starting with the other person, and a
+// thread uses the first few of them, so a conversation can stop anywhere. Each
+// of their lines carries the bucket it earns if it is the latest thing
+// received: a question needs a reply, a promise to get back means waiting on
+// them, a task with a date is something to do, thanks is just to read.
+export const CONVERSATIONS = [
+  {
+    roles: ['classmate'],
+    subject: 'Folien von {weekday}',
+    lines: [
+      { text: 'Hey, hast du die Folien von {weekday} noch? Ich war krank und habe die Sitzung verpasst.', intent: 'needs_reply' },
+      { text: 'Klar, ich lade sie dir gleich in den geteilten Ordner.' },
+      { text: 'Danke dir, das rettet mir die Woche!', intent: 'read_only' },
+      { text: 'Gern. Sag Bescheid, wenn du bei Aufgabe 3 hängst.' },
+      { text: 'Mache ich. Ich schaue es mir am Wochenende an und melde mich dann.', intent: 'waiting_on_them' },
+    ],
+  },
+  {
+    roles: ['classmate'],
+    subject: 'Lerngruppe am {weekday}',
+    lines: [
+      { text: 'Wir treffen uns am {weekday} um {time} in der Bibliothek, Raum {n}. Bring bitte deinen Laptop mit.', intent: 'do_at_a_time' },
+      { text: 'Passt, ich bin dabei. Soll ich die Übungsblätter ausdrucken?' },
+      { text: 'Ja, das wäre super. Druck am besten gleich zwei Exemplare.', intent: 'do_at_a_time' },
+      { text: 'Alles klar, bringe ich mit.' },
+      { text: 'Top, bis dann!', intent: 'read_only' },
+    ],
+  },
+  {
+    roles: ['classmate'],
+    subject: 'Projektbericht: wer schreibt was?',
+    lines: [
+      { text: 'Hi, wir sollten den Bericht aufteilen. Übernimmst du die Auswertung oder lieber die Einleitung?', intent: 'needs_reply' },
+      { text: 'Ich nehme die Auswertung, die Plots habe ich ja schon.' },
+      { text: 'Gut, dann schreibe ich Einleitung und Methodik und schicke dir meinen Teil bis {weekday}.', intent: 'waiting_on_them' },
+      { text: 'Perfekt, dann lese ich ihn gegen.' },
+      { text: 'Hier ist mein Teil. Kannst du bis {weekday} drüberschauen?', intent: 'do_at_a_time' },
+      { text: 'Mache ich, du hörst morgen von mir.' },
+    ],
+  },
+  {
+    roles: ['friend'],
+    subject: 'Kino am {weekday}?',
+    lines: [
+      { text: 'Lust auf Kino am {weekday}? Der neue Film läuft um {time} im Filmtheater am Park.', intent: 'needs_reply' },
+      { text: 'Gute Idee, ich bin dabei. Soll ich Karten reservieren?' },
+      { text: 'Ja, mach mal, zwei Plätze in der Mitte wären ideal.', intent: 'do_at_a_time' },
+      { text: 'Erledigt, Reihe 7. Treffen wir uns vorher auf einen Kaffee?' },
+      { text: 'Gerne, ich schreibe dir kurz vorher, wann ich losfahre.', intent: 'waiting_on_them' },
+    ],
+  },
+  {
+    roles: ['friend'],
+    subject: 'Umzugshelfer gesucht',
+    lines: [
+      { text: 'Ich ziehe am {date} um. Hättest du vormittags ein paar Stunden Zeit zum Tragen?', intent: 'needs_reply' },
+      { text: 'Ja, ich komme. Wann soll ich da sein?' },
+      { text: 'Um 9 Uhr. Die Adresse schicke ich dir noch, Pizza gibt es danach!', intent: 'waiting_on_them' },
+      { text: 'Klingt gut, ich bringe Handschuhe mit.' },
+      { text: 'Hier die Adresse: Lindenallee {n}, dritter Stock. Klingel bei Weber.', intent: 'do_at_a_time' },
+    ],
+  },
+  {
+    roles: ['friend'],
+    subject: 'Geschenk für Mara',
+    lines: [
+      { text: 'Mara hat am {date} Geburtstag. Legen wir für ein Geschenk zusammen?', intent: 'needs_reply' },
+      { text: 'Ja, gute Idee. Hast du schon was im Kopf?' },
+      { text: 'Vielleicht einen Kochkurs. Ich frage die anderen und melde mich.', intent: 'waiting_on_them' },
+      { text: 'Super, sag mir dann, wie viel ich überweisen soll.' },
+      { text: 'Alle sind dabei, es sind {amount} EUR pro Person. Bitte bis {weekday} überweisen.', intent: 'do_at_a_time' },
+    ],
+  },
+  {
+    roles: ['recruiter'],
+    subject: 'Rückfrage zu Ihren Unterlagen',
+    lines: [
+      { text: 'Guten Tag,\n\nkönnten Sie uns noch Ihr aktuelles Notenblatt schicken? Dann kann das Fachteam Ihre Unterlagen vollständig prüfen.', intent: 'needs_reply' },
+      { text: 'Guten Tag,\n\ngern, das Notenblatt ist im Anhang.' },
+      { text: 'Vielen Dank. Wir melden uns in den nächsten Tagen mit einem Terminvorschlag.', intent: 'waiting_on_them' },
+      { text: 'Danke, ich freue mich auf Ihre Nachricht.' },
+      { text: 'Hätten Sie am {weekday} um {time} Uhr Zeit für ein Gespräch per Video?', intent: 'needs_reply' },
+      { text: 'Ja, der Termin passt mir gut.' },
+      { text: 'Schön. Den Link erhalten Sie am Vortag. Bitte halten Sie Ihren Ausweis bereit.', intent: 'do_at_a_time' },
+    ],
+  },
+  {
+    roles: ['recruiter'],
+    subject: 'Kurzes Update zur Stelle',
+    lines: [
+      { text: 'Hallo Semab,\n\ndas Team hat sich deine Projekte angesehen und würde gern mehr erfahren. Wann passt dir nächste Woche ein Anruf?', intent: 'needs_reply' },
+      { text: 'Hallo, das freut mich! Dienstag oder Mittwoch Nachmittag würde gut passen.' },
+      { text: 'Dann Mittwoch um {time}. Ich schicke dir gleich eine Kalendereinladung.', intent: 'do_at_a_time' },
+      { text: 'Danke, ist angekommen.' },
+      { text: 'Super. Nach dem Anruf melde ich mich mit dem nächsten Schritt.', intent: 'waiting_on_them' },
+    ],
+  },
+  {
+    roles: ['landlord'],
+    subject: 'Handwerker am {weekday}',
+    lines: [
+      { text: 'Guten Tag,\n\nam {weekday} zwischen 8 und 12 Uhr kommt der Heizungsmonteur. Bitte sorgen Sie dafür, dass jemand zu Hause ist.', intent: 'do_at_a_time' },
+      { text: 'Guten Tag,\n\nich bin da, danke für die Info.' },
+      { text: 'Der Monteur hat sich gemeldet, er kommt eine Stunde später. Passt das noch?', intent: 'needs_reply' },
+      { text: 'Ja, das ist kein Problem.' },
+      { text: 'Danke. Die Heizung sollte danach wieder normal laufen.', intent: 'read_only' },
+    ],
+  },
+  {
+    roles: ['landlord'],
+    subject: 'Reinigung des Treppenhauses',
+    lines: [
+      { text: 'Liebe Mieterinnen und Mieter,\n\nab dem {date} übernimmt eine Firma die Reinigung des Treppenhauses. Die Kosten sind in der Miete bereits enthalten.', intent: 'read_only' },
+      { text: 'Guten Tag,\n\ngilt das auch für den Keller?' },
+      { text: 'Ja, der Keller wird einmal im Monat mitgereinigt. Ich prüfe noch den genauen Termin und gebe Ihnen Bescheid.', intent: 'waiting_on_them' },
+    ],
+  },
 ];
