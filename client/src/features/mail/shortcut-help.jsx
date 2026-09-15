@@ -7,6 +7,7 @@ export const SHORTCUTS = [
   { keys: ['x'], description: 'Select or unselect the open conversation' },
   { keys: ['e'], description: 'Archive the selection, or the open conversation' },
   { keys: ['z'], description: 'Undo the last archive' },
+  { keys: ['s'], description: 'Star or unstar the selection, or the open conversation' },
   { keys: ['c'], description: 'Write a new message' },
   { keys: ['r'], description: 'Reply to the open conversation' },
   { keys: ['a'], description: 'Reply to everyone on it' },

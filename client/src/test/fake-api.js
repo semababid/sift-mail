@@ -71,10 +71,24 @@ export function fakeAuthApi({ users = [{ email: 'semab@sift.example', password: 
 
 const HIDDEN_FROM_LABELS = ['trash', 'spam'];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const swapFolder = (folders, from, to) => [...new Set(folders.map((f) => (f === from ? to : f)))];
+
+const THREAD_ACTIONS = {
+  markRead: (t) => ({ ...t, hasUnread: false }),
+  star: (t) => ({ ...t, isStarred: true }),
+  unstar: (t) => ({ ...t, isStarred: false }),
+  archive: (t) => ({ ...t, folders: swapFolder(t.folders, 'inbox', 'archive') }),
+  moveToInbox: (t) => ({ ...t, folders: swapFolder(t.folders, 'archive', 'inbox') }),
+};
 
 // A stand-in for the mail routes the mailbox reads and writes, filtering the
 // way the real list does. The cursor is simply the position the next page
 // starts at.
+//
+// Thread actions collect in `state.batches` as they arrive and in
+// `state.answered` as they are answered, so a test can tell a change shown
+// before the server replied from one shown after. `failFor` refuses any action
+// on those thread ids, after `failDelay`.
 //
 // Drafts live in `state.drafts`, sent messages collect in `state.sent`, and
 // `state.draftLog` records every draft call in order with what it carried.
@@ -86,6 +100,8 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
     listStatus: null,
     nextPageStatus: null,
     batches: [],
+    answered: [],
+    failFor: new Set(),
     drafts: new Map(drafts.map((draft) => [draft.id, draft])),
     sent: [],
     draftLog: [],
@@ -129,22 +145,25 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
   }
 
   const handlers = [
-    http.get('/api/threads', ({ request }) => {
+    // The page is read from the state before the delay, as a real server runs
+    // its query and then takes a while to deliver it. A slow response can so
+    // arrive carrying data that is out of date by the time it lands.
+    http.get('/api/threads', async ({ request }) => {
       record(request);
       const params = new URL(request.url).searchParams;
       const cursor = params.get('cursor');
       const status = cursor ? state.nextPageStatus : state.listStatus;
-      if (status) return failure(status);
 
       const matching = state.threads
         .filter((thread) => inView(thread, params.get('folder'), params.get('label')))
         .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
       const start = cursor ? Number(cursor) : 0;
       const end = start + pageSize;
-      return HttpResponse.json({
-        threads: matching.slice(start, end),
-        nextCursor: end < matching.length ? String(end) : null,
-      });
+      const page = { threads: matching.slice(start, end), nextCursor: end < matching.length ? String(end) : null };
+
+      if (state.listDelay) await delay(state.listDelay);
+      if (status) return failure(status);
+      return HttpResponse.json(page);
     }),
 
     http.get('/api/threads/:id', ({ request, params }) => {
@@ -158,17 +177,15 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
       record(request);
       const body = await request.json();
       state.batches.push(body);
-      if (state.batchDelay) await delay(state.batchDelay);
-      if (state.batchStatus) return failure(state.batchStatus);
 
-      const actions = {
-        markRead: (t) => ({ ...t, hasUnread: false }),
-        archive: (t) => ({ ...t, folders: [...new Set(t.folders.map((f) => (f === 'inbox' ? 'archive' : f)))] }),
-        moveToInbox: (t) => ({ ...t, folders: [...new Set(t.folders.map((f) => (f === 'archive' ? 'inbox' : f)))] }),
-      };
-      const change = actions[body.action];
+      const failing = Boolean(state.batchStatus) || body.ids.some((id) => state.failFor.has(id));
+      const wait = failing ? (state.failDelay ?? state.batchDelay) : state.batchDelay;
+      if (wait) await delay(wait);
+      state.answered.push(failing ? `${body.action}:failed` : body.action);
+      if (failing) return failure(state.batchStatus ?? 500);
+
+      const change = THREAD_ACTIONS[body.action];
       if (!change) return failure(400);
-
       state.threads = state.threads.map((t) => (body.ids.includes(t.id) ? change(t) : t));
       return HttpResponse.json({ threads: state.threads.filter((t) => body.ids.includes(t.id)) });
     }),

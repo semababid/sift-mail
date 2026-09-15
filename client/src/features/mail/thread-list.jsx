@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useSignedInUser } from '../auth/guards.jsx';
+import Skeleton from '../../components/skeleton.jsx';
+import StarButton from '../../components/star-button.jsx';
 import { conversationWith, listDate } from '../../lib/format.js';
 
 // Every row is the same height, so no row has to be measured and a scroll
@@ -10,13 +12,25 @@ export const ROW_HEIGHT = 84;
 
 // How close to the last loaded row the list gets before it fetches the next page.
 const PREFETCH_ROWS = 15;
+const PLACEHOLDER_ROWS = 8;
 
 // Only the rows in view, plus a few either side, are in the DOM. A folder of a
 // thousand conversations costs the same to scroll as one of twenty.
 //
 // `list` is a folder, a label or search results in one shape, built by the
 // mailbox page: the threads loaded so far and how to load more.
-export default function ThreadList({ title, emptyText, list, basePath, linkSuffix, openId, selectedIds, onToggleSelect }) {
+export default function ThreadList({
+  title,
+  emptyText,
+  emptyHint,
+  list,
+  basePath,
+  linkSuffix,
+  openId,
+  selectedIds,
+  onToggleSelect,
+  onToggleStar,
+}) {
   const user = useSignedInUser();
   const scrollRef = useRef(null);
   const { threads, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = list;
@@ -54,14 +68,30 @@ export default function ThreadList({ title, emptyText, list, basePath, linkSuffi
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {list.isPending ? (
-          <ListNote role="status">Loading conversations</ListNote>
+          <div role="status">
+            <span className="sr-only">Loading conversations</span>
+            {Array.from({ length: PLACEHOLDER_ROWS }, (_, index) => (
+              <div
+                key={index}
+                className="flex flex-col justify-center gap-2 border-b border-stone-100 pr-4 pl-10"
+                style={{ height: ROW_HEIGHT }}
+              >
+                <Skeleton className="h-3 w-1/3" />
+                <Skeleton className="h-3 w-3/4" />
+                <Skeleton className="h-3 w-5/6" />
+              </div>
+            ))}
+          </div>
         ) : list.isError ? (
           <ListNote>
             Sift could not load {title}.{' '}
             <RetryButton onClick={() => list.refetch()} />
           </ListNote>
         ) : threads.length === 0 ? (
-          <ListNote>{emptyText}</ListNote>
+          <div className="px-6 py-12 text-center">
+            <p className="text-sm font-medium text-stone-700">{emptyText}</p>
+            {emptyHint && <p className="mt-1 text-sm text-stone-500">{emptyHint}</p>}
+          </div>
         ) : (
           <>
             <ul
@@ -72,6 +102,7 @@ export default function ThreadList({ title, emptyText, list, basePath, linkSuffi
               {rows.map((row) => {
                 const thread = threads[row.index];
                 const checked = selectedIds.includes(thread.id);
+                const subject = thread.subject || '(no subject)';
                 return (
                   <li
                     key={thread.id}
@@ -84,7 +115,7 @@ export default function ThreadList({ title, emptyText, list, basePath, linkSuffi
                       type="checkbox"
                       checked={checked}
                       onChange={() => onToggleSelect(thread.id)}
-                      aria-label={`Select ${thread.subject || '(no subject)'}`}
+                      aria-label={`Select ${subject}`}
                       className="absolute top-1/2 left-3.5 z-10 size-4 -translate-y-1/2 accent-sky-700"
                     />
                     <ThreadRow
@@ -93,6 +124,12 @@ export default function ThreadList({ title, emptyText, list, basePath, linkSuffi
                       open={thread.id === openId}
                       checked={checked}
                       selfAddress={user.email}
+                    />
+                    <StarButton
+                      label={`Star ${subject}`}
+                      starred={thread.isStarred}
+                      onClick={() => onToggleStar(thread)}
+                      className="absolute right-2.5 bottom-2 z-10 text-base"
                     />
                   </li>
                 );
@@ -146,17 +183,13 @@ function ThreadRow({ thread, to, open, checked, selfAddress }) {
           {who}
           {thread.messageCount > 1 && <span className="font-normal text-stone-400"> {thread.messageCount}</span>}
         </span>
-        {thread.isStarred && (
-          <span aria-hidden="true" className="text-amber-500">
-            ★
-          </span>
-        )}
         <time dateTime={thread.lastMessageAt} className={`shrink-0 text-xs ${strong || 'text-stone-500'}`}>
           {date}
         </time>
       </span>
       <span className={`truncate ${strong || 'text-stone-700'}`}>{subject}</span>
-      <span className="truncate text-stone-500">{thread.snippet}</span>
+      {/* Room on the right for the star button over this line. */}
+      <span className="truncate pr-6 text-stone-500">{thread.snippet}</span>
     </Link>
   );
 }

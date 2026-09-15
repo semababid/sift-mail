@@ -77,8 +77,9 @@ describe('selecting and archiving', () => {
     expect(await screen.findByText('Conversation archived.')).toBeInTheDocument();
     expect(mail.state.batches).toEqual([{ ids: [threads[1].id], action: 'archive' }]);
     expect(pathOf(router)).toBe(`/inbox/${threads[2].id}`);
-    expect(list).not.toHaveTextContent('Zweite');
+    await waitFor(() => expect(list).not.toHaveTextContent('Zweite'));
     // Taken out of the cached inbox, not loaded again.
+    await waitFor(() => expect(mail.state.answered).toEqual(['archive']));
     expect(mail.count('GET /api/threads')).toBe(1);
   });
 
@@ -100,7 +101,7 @@ describe('selecting and archiving', () => {
     expect(screen.queryByText('2 selected')).not.toBeInTheDocument();
     // The open conversation went with the selection, so the next one down opens.
     expect(pathOf(router)).toBe(`/inbox/${threads[3].id}`);
-    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(2));
   });
 
   it('skips the rest of the selection when choosing what opens next', async () => {
@@ -165,7 +166,7 @@ describe('selecting and archiving', () => {
     expect(mail.state.batches).toEqual([]);
   });
 
-  it('says so when archiving fails, and keeps the conversation where it was', async () => {
+  it('says so when archiving fails, and puts the conversation back where it was', async () => {
     const threads = numbered(2);
     const mail = serve({ threads });
     mail.state.batchStatus = 500;
@@ -173,9 +174,9 @@ describe('selecting and archiving', () => {
     const list = await findList('Inbox');
 
     await user.keyboard('e');
-    expect(await screen.findByText('Sift could not archive that. Try again.')).toBeInTheDocument();
+    expect(await screen.findByText('Sift could not archive that, so it is back where it was.')).toBeInTheDocument();
     expect(pathOf(router)).toBe(`/inbox/${threads[0].id}`);
-    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(2));
   });
 });
 

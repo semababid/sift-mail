@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
 import Dialog from '../components/dialog.jsx';
 import Sidebar from '../features/mail/sidebar.jsx';
 import ThreadList from '../features/mail/thread-list.jsx';
@@ -10,7 +11,16 @@ import ShortcutHelp from '../features/mail/shortcut-help.jsx';
 import ComposeWindow from '../features/compose/compose-window.jsx';
 import { quoteMessage, replyRecipients, replySubject } from '../features/compose/reply.js';
 import { FOLDERS, folderName } from '../features/mail/folders.js';
-import { useArchive, useLabels, useMoveToInbox, useSearch, useThread, useThreadList } from '../features/mail/queries.js';
+import {
+  captureThreads,
+  useArchive,
+  useLabels,
+  useMoveToInbox,
+  useSearch,
+  useThread,
+  useThreadAction,
+  useThreadList,
+} from '../features/mail/queries.js';
 import { useSignedInUser } from '../features/auth/guards.jsx';
 import { useLogout } from '../features/auth/session.js';
 import { useShortcuts } from '../lib/shortcuts.js';
@@ -21,6 +31,16 @@ const NOTICE_MS = 4000;
 const UNDO_MS = 8000;
 const noop = () => {};
 const COMPOSE_NOTICES = { sent: 'Message sent.', saved: 'Draft saved.', discarded: 'Draft discarded.' };
+
+// What an empty folder says, and a hint where there is something useful to add.
+const EMPTY_FOLDERS = {
+  inbox: ['Your inbox is empty.', 'Press c to write a message.'],
+  sent: ['Nothing sent yet.', null],
+  drafts: ['No drafts.', 'A message you close before sending is kept here.'],
+  archive: ['Nothing archived yet.', 'Press e on a conversation in the inbox to archive it.'],
+  spam: ['No spam.', null],
+  trash: ['Trash is empty.', null],
+};
 
 // Below lg, the list and the search box above it are hidden while a
 // conversation is open. jsdom has no matchMedia, which counts as wide.
@@ -39,13 +59,23 @@ export default function Mailbox({ mode }) {
   const { folder, labelId, threadId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const user = useSignedInUser();
   const labels = useLabels();
   const logout = useLogout();
   const archive = useArchive();
   const moveToInbox = useMoveToInbox();
+  const star = useThreadAction('star', { onError: () => say('Sift could not star that.') });
+  const unstar = useThreadAction('unstar', { onError: () => say('Sift could not take the star off.') });
   const conversation = useThread(threadId);
   const searchRef = useRef(null);
+
+  // The conversation open right now, for work that finishes after the user
+  // may have moved on.
+  const openNow = useRef(threadId);
+  useEffect(() => {
+    openNow.current = threadId;
+  });
 
   const query = mode === 'search' ? (searchParams.get('q') ?? '').trim() : '';
   const label = mode === 'label' ? labels.data?.find((candidate) => candidate.id === labelId) : null;
@@ -101,7 +131,9 @@ export default function Mailbox({ mode }) {
   const selectedIds = selection.view === listPath ? selection.ids : [];
 
   // `undo`, when given, puts an Undo button on the notice and is what z runs.
-  const say = (text, undo = null) => setNotice({ text, undo, at: Date.now() });
+  function say(text, undo = null) {
+    setNotice({ text, undo, at: Date.now() });
+  }
 
   useEffect(() => {
     if (!notice) return;
@@ -141,14 +173,29 @@ export default function Mailbox({ mode }) {
   }
   const clearSelection = () => setSelection({ view: listPath, ids: [] });
 
+  // The selection when there is one, otherwise the open conversation.
+  const targetIds = () => (selectedIds.length > 0 ? selectedIds : threadId ? [threadId] : []);
+
   function selectOpen() {
     if (threadId) toggleSelected(threadId);
     else say('Open a conversation to select it.');
   }
 
+  const toggleStar = (thread) => (thread.isStarred ? unstar : star).mutate({ ids: [thread.id] });
+
+  function starTargets() {
+    const known = targetIds()
+      .map((id) => threads.find((thread) => thread.id === id) ?? (conversation.data?.thread.id === id ? conversation.data.thread : null))
+      .filter(Boolean);
+    if (known.length === 0) return say('Open or select a conversation to star it.');
+    // A selection with some starred and some not gets starred, rather than
+    // having the stars it already has taken off.
+    const starring = !known.every((thread) => thread.isStarred);
+    (starring ? star : unstar).mutate({ ids: known.map((thread) => thread.id) });
+  }
+
   function archiveTargets() {
-    if (archive.isPending) return;
-    const ids = selectedIds.length > 0 ? selectedIds : threadId ? [threadId] : [];
+    const ids = targetIds();
     if (ids.length === 0) return say('Open or select a conversation to archive it.');
 
     const inInbox = new Set(threads.filter((thread) => thread.folders.includes('inbox')).map((thread) => thread.id));
@@ -164,31 +211,41 @@ export default function Mailbox({ mode }) {
       : null;
     const reopen = closing ? threadPath(threadId) : null;
 
-    archive.mutate(targets, {
-      onSuccess: () => {
-        say(
-          targets.length === 1 ? 'Conversation archived.' : `${targets.length} conversations archived.`,
-          () => undoArchive(targets, reopen),
-        );
-        clearSelection();
-        if (closing) navigate(after ? threadPath(after.id) : listPath, { replace: true });
-      },
-      onError: () => say('Sift could not archive that. Try again.'),
+    // Taken before the rows leave the list, so Undo can put them back where they were.
+    const previousRows = captureThreads(queryClient, targets);
+    const archived = archive.mutateAsync({ ids: targets });
+
+    clearSelection();
+    if (closing) navigate(after ? threadPath(after.id) : listPath, { replace: true });
+    say(
+      targets.length === 1 ? 'Conversation archived.' : `${targets.length} conversations archived.`,
+      () => undoArchive(targets, reopen, archived, previousRows),
+    );
+
+    archived.catch(() => {
+      say('Sift could not archive that, so it is back where it was.');
+      // Back to it only if the user is still where the archive took them.
+      // Pulling them away from somewhere they have gone since would be worse.
+      if (closing && openNow.current === after?.id) navigate(reopen, { replace: true });
     });
   }
 
-  // Undo sends the inbox action, which brings back everything in these
-  // conversations that sits in the archive. The notice goes first, so a second
-  // z or click finds nothing left to undo and sends no second request.
-  function undoArchive(ids, reopen) {
+  // Waits for the archive to reach the server before moving anything back. Sent
+  // any sooner, the move back could be applied first, and the conversations
+  // would end up archived after all. An archive that failed has already been
+  // put back, so there is nothing left to undo.
+  async function undoArchive(ids, reopen, archived, previousRows) {
     setNotice(null);
-    moveToInbox.mutate(ids, {
-      onSuccess: () => {
-        say(ids.length === 1 ? 'Moved back to the inbox.' : `${ids.length} conversations moved back to the inbox.`);
-        if (reopen) navigate(reopen, { replace: true });
-      },
-      onError: () => say('Sift could not undo that.', () => undoArchive(ids, reopen)),
-    });
+    try {
+      await archived;
+    } catch {
+      return;
+    }
+    if (reopen) navigate(reopen, { replace: true });
+    moveToInbox.mutateAsync({ ids, previous: previousRows }).then(
+      () => say(ids.length === 1 ? 'Moved back to the inbox.' : `${ids.length} conversations moved back to the inbox.`),
+      () => say('Sift could not undo that.', () => undoArchive(ids, reopen, Promise.resolve(), previousRows)),
+    );
   }
 
   function openCompose(initial) {
@@ -262,6 +319,7 @@ export default function Mailbox({ mode }) {
       k: previous,
       x: selectOpen,
       e: archiveTargets,
+      s: starTargets,
       z: () => notice?.undo?.(),
       c: composeNew,
       r: () => replyToOpen(),
@@ -287,6 +345,7 @@ export default function Mailbox({ mode }) {
     { id: 'next', title: 'Next conversation', keys: 'j', run: next },
     { id: 'previous', title: 'Previous conversation', keys: 'k', run: previous },
     { id: 'archive', title: 'Archive', keys: 'e', run: archiveTargets },
+    { id: 'star', title: 'Star or unstar', keys: 's', run: starTargets },
     ...(notice?.undo ? [{ id: 'undo', title: 'Undo archive', keys: 'z', run: notice.undo }] : []),
     { id: 'select', title: 'Select conversation', keys: 'x', run: selectOpen },
     { id: 'search', title: 'Search mail', keys: '/', run: focusSearch },
@@ -303,6 +362,12 @@ export default function Mailbox({ mode }) {
   if (notFound) return <NotFound />;
 
   const title = mode === 'search' ? 'Search results' : mode === 'label' ? label?.name : folderName(folder);
+  const [emptyText, emptyHint] =
+    mode === 'search'
+      ? [`No conversations match "${query}".`, 'Try other words, or fewer of them.']
+      : mode === 'label'
+        ? ['No conversations with this label.', null]
+        : EMPTY_FOLDERS[folder];
 
   let listContent;
   if (mode === 'label' && !label) {
@@ -326,13 +391,15 @@ export default function Mailbox({ mode }) {
       <ThreadList
         key={listPath}
         title={title}
-        emptyText={mode === 'search' ? `No conversations match "${query}".` : `Nothing in ${title}.`}
+        emptyText={emptyText}
+        emptyHint={emptyHint}
         list={list}
         basePath={basePath}
         linkSuffix={suffix}
         openId={threadId}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
+        onToggleStar={toggleStar}
       />
     );
   }
@@ -358,8 +425,7 @@ export default function Mailbox({ mode }) {
             <button
               type="button"
               onClick={archiveTargets}
-              disabled={archive.isPending}
-              className="rounded-md border border-stone-300 bg-white px-2.5 py-1 hover:bg-stone-100 disabled:opacity-60"
+              className="rounded-md border border-stone-300 bg-white px-2.5 py-1 hover:bg-stone-100"
             >
               Archive
             </button>
@@ -372,7 +438,13 @@ export default function Mailbox({ mode }) {
       </div>
 
       <div className={`${threadId ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col bg-stone-50`}>
-        <ReadingPane threadId={threadId} closeTo={listPath} onReply={reply} onContinueDraft={continueDraft} />
+        <ReadingPane
+          threadId={threadId}
+          closeTo={listPath}
+          onReply={reply}
+          onContinueDraft={continueDraft}
+          onToggleStar={toggleStar}
+        />
       </div>
 
       {dialog === 'palette' && (

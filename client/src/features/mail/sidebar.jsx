@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router';
 import { useSignedInUser } from '../auth/guards.jsx';
 import { useLogout } from '../auth/session.js';
+import Skeleton from '../../components/skeleton.jsx';
 import { FOLDERS } from './folders.js';
 import { useLabels } from './queries.js';
 
@@ -51,7 +52,15 @@ export default function Sidebar({ onNavigate }) {
 }
 
 function LabelLinks({ labels, onNavigate }) {
-  if (labels.isPending) return null;
+  if (labels.isPending) {
+    return (
+      <div className="space-y-3 px-3 py-2">
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-3 w-28" />
+      </div>
+    );
+  }
   if (labels.isError) return <p className="px-3 text-sm text-stone-500">Labels could not be loaded.</p>;
   if (labels.data.length === 0) return <p className="px-3 text-sm text-stone-500">No labels yet.</p>;
 

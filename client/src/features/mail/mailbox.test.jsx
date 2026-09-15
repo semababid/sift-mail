@@ -71,7 +71,7 @@ describe('folders and labels', () => {
   it('says when a folder is empty', async () => {
     serve({ threads: [makeThread()] });
     renderApp('/trash');
-    expect(await screen.findByText('Nothing in Trash.')).toBeInTheDocument();
+    expect(await screen.findByText('Trash is empty.')).toBeInTheDocument();
   });
 
   it('offers to try again when a folder cannot be loaded', async () => {

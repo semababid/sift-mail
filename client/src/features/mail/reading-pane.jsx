@@ -1,21 +1,28 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useSignedInUser } from '../auth/guards.jsx';
+import Skeleton from '../../components/skeleton.jsx';
+import StarButton from '../../components/star-button.jsx';
 import { messageDate, personName } from '../../lib/format.js';
 import { replyRecipients } from '../compose/reply.js';
 import { useMarkRead, useThread } from './queries.js';
 
-// `onReply(message, { all })` and `onContinueDraft(draft)` open the compose
-// window, which the mailbox page owns.
-export default function ReadingPane({ threadId, closeTo, onReply, onContinueDraft }) {
-  if (!threadId) return <PaneNote>Select a conversation to read it.</PaneNote>;
+// `onReply(message, { all })`, `onContinueDraft(draft)` and `onToggleStar(thread)`
+// are handled by the mailbox page, which owns compose and the thread actions.
+export default function ReadingPane({ threadId, closeTo, ...actions }) {
+  if (!threadId) {
+    return (
+      <PaneNote>
+        <p>Select a conversation to read it.</p>
+        <p className="text-xs text-stone-400">Or press j to open the first one.</p>
+      </PaneNote>
+    );
+  }
   // Keyed by thread, so opening another one starts at the top.
-  return (
-    <Conversation key={threadId} threadId={threadId} closeTo={closeTo} onReply={onReply} onContinueDraft={onContinueDraft} />
-  );
+  return <Conversation key={threadId} threadId={threadId} closeTo={closeTo} {...actions} />;
 }
 
-function Conversation({ threadId, closeTo, onReply, onContinueDraft }) {
+function Conversation({ threadId, closeTo, onReply, onContinueDraft, onToggleStar }) {
   const user = useSignedInUser();
   const conversation = useThread(threadId);
   const { mutate: markRead } = useMarkRead();
@@ -24,16 +31,32 @@ function Conversation({ threadId, closeTo, onReply, onContinueDraft }) {
   // Opening an unread conversation marks it read. The marker includes the time
   // of the newest message, so a reply arriving while it is open gets marked
   // too, and it is checked before sending, so React running this effect twice
-  // in development still sends one request.
+  // in development still sends one request. A refused mark, which turns the
+  // conversation unread again, is not retried in a loop for the same reason.
   const marked = useRef(null);
   const unreadMarker = thread?.hasUnread ? `${thread.id}@${thread.lastMessageAt}` : null;
   useEffect(() => {
     if (!unreadMarker || marked.current === unreadMarker) return;
     marked.current = unreadMarker;
-    markRead(threadId);
+    markRead({ ids: [threadId] });
   }, [unreadMarker, threadId, markRead]);
 
-  if (conversation.isPending) return <PaneNote role="status">Loading conversation</PaneNote>;
+  if (conversation.isPending) {
+    return (
+      <div role="status" className="space-y-4 px-8 py-6">
+        <span className="sr-only">Loading conversation</span>
+        <Skeleton className="h-6 w-2/3" />
+        {[0, 1].map((index) => (
+          <div key={index} className="space-y-3 rounded-lg border border-stone-200 bg-white p-5">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-5/6" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (conversation.isError) {
     const gone = conversation.error.response?.status === 404;
@@ -59,9 +82,17 @@ function Conversation({ threadId, closeTo, onReply, onContinueDraft }) {
         <Link to={closeTo} className="mb-2 inline-block text-sm text-sky-700 lg:hidden">
           Back to the list
         </Link>
-        <h2 id="thread-subject" className="text-xl font-semibold break-words">
-          {thread.subject || '(no subject)'}
-        </h2>
+        <div className="flex items-start gap-3">
+          <h2 id="thread-subject" className="min-w-0 flex-1 text-xl font-semibold break-words">
+            {thread.subject || '(no subject)'}
+          </h2>
+          <StarButton
+            label="Star conversation"
+            starred={thread.isStarred}
+            onClick={() => onToggleStar(thread)}
+            className="text-xl"
+          />
+        </div>
       </header>
       <ol className="space-y-4 px-8 py-6">
         {conversation.data.messages.map((message) => (
