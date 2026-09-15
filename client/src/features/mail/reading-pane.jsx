@@ -2,15 +2,20 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useSignedInUser } from '../auth/guards.jsx';
 import { messageDate, personName } from '../../lib/format.js';
+import { replyRecipients } from '../compose/reply.js';
 import { useMarkRead, useThread } from './queries.js';
 
-export default function ReadingPane({ threadId, closeTo }) {
+// `onReply(message, { all })` and `onContinueDraft(draft)` open the compose
+// window, which the mailbox page owns.
+export default function ReadingPane({ threadId, closeTo, onReply, onContinueDraft }) {
   if (!threadId) return <PaneNote>Select a conversation to read it.</PaneNote>;
   // Keyed by thread, so opening another one starts at the top.
-  return <Conversation key={threadId} threadId={threadId} closeTo={closeTo} />;
+  return (
+    <Conversation key={threadId} threadId={threadId} closeTo={closeTo} onReply={onReply} onContinueDraft={onContinueDraft} />
+  );
 }
 
-function Conversation({ threadId, closeTo }) {
+function Conversation({ threadId, closeTo, onReply, onContinueDraft }) {
   const user = useSignedInUser();
   const conversation = useThread(threadId);
   const { mutate: markRead } = useMarkRead();
@@ -61,7 +66,7 @@ function Conversation({ threadId, closeTo }) {
       <ol className="space-y-4 px-8 py-6">
         {conversation.data.messages.map((message) => (
           <li key={message.id}>
-            <MessageView message={message} selfAddress={user.email} />
+            <MessageView message={message} selfAddress={user.email} onReply={onReply} onContinueDraft={onContinueDraft} />
           </li>
         ))}
       </ol>
@@ -69,9 +74,15 @@ function Conversation({ threadId, closeTo }) {
   );
 }
 
-function MessageView({ message, selfAddress }) {
+function MessageView({ message, selfAddress, onReply, onContinueDraft }) {
   const sender = personName(message.from, selfAddress);
   const recipients = [...message.to, ...message.cc].map((person) => personName(person, selfAddress)).join(', ');
+
+  // Reply all only shows when it would reach more people than Reply does.
+  const count = ({ to, cc }) => to.length + cc.length;
+  const canReplyAll =
+    !message.isDraft &&
+    count(replyRecipients(message, selfAddress, { all: true })) > count(replyRecipients(message, selfAddress));
 
   return (
     <article aria-label={`From ${sender}`} className="rounded-lg border border-stone-200 bg-white p-5">
@@ -85,7 +96,26 @@ function MessageView({ message, selfAddress }) {
       </div>
       {recipients && <p className="mt-0.5 text-sm text-stone-500">to {recipients}</p>}
       <MessageBody message={message} />
+
+      <div className="mt-4 flex gap-2 text-sm">
+        {message.isDraft ? (
+          <MessageAction onClick={() => onContinueDraft(message)}>Continue draft</MessageAction>
+        ) : (
+          <>
+            <MessageAction onClick={() => onReply(message)}>Reply</MessageAction>
+            {canReplyAll && <MessageAction onClick={() => onReply(message, { all: true })}>Reply all</MessageAction>}
+          </>
+        )}
+      </div>
     </article>
+  );
+}
+
+function MessageAction({ onClick, children }) {
+  return (
+    <button type="button" onClick={onClick} className="rounded-md border border-stone-300 px-3 py-1 hover:bg-stone-100">
+      {children}
+    </button>
   );
 }
 

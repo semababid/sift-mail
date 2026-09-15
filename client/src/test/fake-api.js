@@ -1,4 +1,5 @@
 import { delay, http, HttpResponse } from 'msw';
+import { SELF } from './mail-fixtures.js';
 
 // A stand-in for the auth routes with the same status codes and error codes as
 // the real server. Tests read and change its state directly.
@@ -69,24 +70,63 @@ export function fakeAuthApi({ users = [{ email: 'semab@sift.example', password: 
 }
 
 const HIDDEN_FROM_LABELS = ['trash', 'spam'];
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// A stand-in for the mail routes the mailbox reads, filtering the way the real
-// list does. The cursor is simply the position the next page starts at.
-export function fakeMailApi({ threads = [], messages = {}, labels = [], pageSize = 50 } = {}) {
-  const state = { threads, messages, labels, listStatus: null, nextPageStatus: null, batches: [] };
+// A stand-in for the mail routes the mailbox reads and writes, filtering the
+// way the real list does. The cursor is simply the position the next page
+// starts at.
+//
+// Drafts live in `state.drafts`, sent messages collect in `state.sent`, and
+// `state.draftLog` records every draft call in order with what it carried.
+export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts = [], pageSize = 50 } = {}) {
+  const state = {
+    threads,
+    messages,
+    labels,
+    listStatus: null,
+    nextPageStatus: null,
+    batches: [],
+    drafts: new Map(drafts.map((draft) => [draft.id, draft])),
+    sent: [],
+    draftLog: [],
+  };
   const calls = [];
+  let draftCount = 0;
 
   const record = (request) => {
     const url = new URL(request.url);
     calls.push({ call: `${request.method} ${url.pathname}`, url });
   };
   const failure = (status) => HttpResponse.json({ error: 'something went wrong', code: 'internal' }, { status });
+  const draftNotFound = () => HttpResponse.json({ error: 'draft not found', code: 'not_found' }, { status: 404 });
+  const people = (addresses) => addresses.map((address) => ({ address }));
 
   const inView = (thread, folder, label) => {
     if (!label) return thread.folders.includes(folder ?? 'inbox');
     if (!thread.labelIds.includes(label)) return false;
     return folder ? thread.folders.includes(folder) : thread.folders.some((f) => !HIDDEN_FROM_LABELS.includes(f));
   };
+
+  // The answer the server's validation gives, naming the first bad address.
+  function refuseBadAddress(body) {
+    for (const list of ['to', 'cc', 'bcc']) {
+      const index = (body[list] ?? []).findIndex((address) => !EMAIL.test(address));
+      if (index !== -1) {
+        return HttpResponse.json(
+          { error: 'validation failed', code: 'invalid_body', fields: { [`${list}.${index}`]: 'invalid email address' } },
+          { status: 400 },
+        );
+      }
+    }
+    return null;
+  }
+
+  // Logged before any delay, so a test sees a call the moment it is made.
+  async function logDraftCall(request, body) {
+    const call = `${request.method} ${new URL(request.url).pathname}`;
+    state.draftLog.push(body === undefined ? { call } : { call, body });
+    if (state.draftDelay) await delay(state.draftDelay);
+  }
 
   const handlers = [
     http.get('/api/threads', ({ request }) => {
@@ -162,6 +202,79 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], pageSize
     http.get('/api/labels', ({ request }) => {
       record(request);
       return HttpResponse.json({ labels: state.labels });
+    }),
+
+    http.post('/api/drafts', async ({ request }) => {
+      record(request);
+      const body = await request.json();
+      await logDraftCall(request, body);
+      if (state.draftStatus) return failure(state.draftStatus);
+      const refused = refuseBadAddress(body);
+      if (refused) return refused;
+
+      draftCount += 1;
+      const draft = {
+        id: `draft-${draftCount}`,
+        threadId: body.threadId ?? `thread-of-draft-${draftCount}`,
+        from: SELF,
+        to: people(body.to ?? []),
+        cc: people(body.cc ?? []),
+        bcc: people(body.bcc ?? []),
+        subject: body.subject ?? '',
+        bodyText: body.bodyText ?? '',
+        bodyHtml: '',
+        isDraft: true,
+        folder: 'drafts',
+        sentAt: new Date().toISOString(),
+      };
+      state.drafts.set(draft.id, draft);
+      return HttpResponse.json({ draft }, { status: 201 });
+    }),
+
+    http.patch('/api/drafts/:id', async ({ request, params }) => {
+      record(request);
+      const body = await request.json();
+      await logDraftCall(request, body);
+      if (state.draftStatus) return failure(state.draftStatus);
+      const current = state.drafts.get(params.id);
+      if (!current) return draftNotFound();
+      const refused = refuseBadAddress(body);
+      if (refused) return refused;
+
+      const draft = {
+        ...current,
+        ...(body.to && { to: people(body.to) }),
+        ...(body.cc && { cc: people(body.cc) }),
+        ...(body.bcc && { bcc: people(body.bcc) }),
+        ...(body.subject !== undefined && { subject: body.subject }),
+        ...(body.bodyText !== undefined && { bodyText: body.bodyText }),
+      };
+      state.drafts.set(draft.id, draft);
+      return HttpResponse.json({ draft });
+    }),
+
+    http.delete('/api/drafts/:id', async ({ request, params }) => {
+      record(request);
+      await logDraftCall(request);
+      if (!state.drafts.delete(params.id)) return draftNotFound();
+      return new HttpResponse(null, { status: 204 });
+    }),
+
+    http.post('/api/drafts/:id/send', async ({ request, params }) => {
+      record(request);
+      await logDraftCall(request);
+      if (state.sendDelay) await delay(state.sendDelay);
+      if (state.sendStatus) return failure(state.sendStatus);
+      const draft = state.drafts.get(params.id);
+      if (!draft) return draftNotFound();
+      if (draft.to.length + draft.cc.length + draft.bcc.length === 0) {
+        return HttpResponse.json({ error: 'add at least one recipient', code: 'no_recipients' }, { status: 400 });
+      }
+
+      state.drafts.delete(draft.id);
+      const message = { ...draft, isDraft: false, folder: 'sent' };
+      state.sent.push(message);
+      return HttpResponse.json({ message, thread: { id: draft.threadId } }, { status: 201 });
     }),
   ];
 

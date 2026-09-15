@@ -43,6 +43,7 @@ export function useThread(id) {
   return useQuery({
     queryKey: threadKey(id),
     queryFn: async () => (await api.get(`/api/threads/${encodeURIComponent(id)}`)).data,
+    enabled: Boolean(id),
   });
 }
 

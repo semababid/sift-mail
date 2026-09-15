@@ -7,8 +7,11 @@ import ReadingPane from '../features/mail/reading-pane.jsx';
 import SearchBox from '../features/mail/search-box.jsx';
 import CommandPalette from '../features/mail/command-palette.jsx';
 import ShortcutHelp from '../features/mail/shortcut-help.jsx';
+import ComposeWindow from '../features/compose/compose-window.jsx';
+import { quoteMessage, replyRecipients, replySubject } from '../features/compose/reply.js';
 import { FOLDERS, folderName } from '../features/mail/folders.js';
-import { useArchive, useLabels, useMoveToInbox, useSearch, useThreadList } from '../features/mail/queries.js';
+import { useArchive, useLabels, useMoveToInbox, useSearch, useThread, useThreadList } from '../features/mail/queries.js';
+import { useSignedInUser } from '../features/auth/guards.jsx';
 import { useLogout } from '../features/auth/session.js';
 import { useShortcuts } from '../lib/shortcuts.js';
 import NotFound from './not-found.jsx';
@@ -17,6 +20,7 @@ const NOTICE_MS = 4000;
 // Long enough to spot a mistake and reach for Undo.
 const UNDO_MS = 8000;
 const noop = () => {};
+const COMPOSE_NOTICES = { sent: 'Message sent.', saved: 'Draft saved.', discarded: 'Draft discarded.' };
 
 // Below lg, the list and the search box above it are hidden while a
 // conversation is open. jsdom has no matchMedia, which counts as wide.
@@ -35,10 +39,12 @@ export default function Mailbox({ mode }) {
   const { folder, labelId, threadId } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const user = useSignedInUser();
   const labels = useLabels();
   const logout = useLogout();
   const archive = useArchive();
   const moveToInbox = useMoveToInbox();
+  const conversation = useThread(threadId);
   const searchRef = useRef(null);
 
   const query = mode === 'search' ? (searchParams.get('q') ?? '').trim() : '';
@@ -83,6 +89,7 @@ export default function Mailbox({ mode }) {
   const openIndex = threads.findIndex((thread) => thread.id === threadId);
 
   const [dialog, setDialog] = useState(null);
+  const [compose, setCompose] = useState(null);
   const [queued, setQueued] = useState(null);
   const [notice, setNotice] = useState(null);
   const [focusSearchWhenClosed, setFocusSearchWhenClosed] = useState(false);
@@ -184,6 +191,54 @@ export default function Mailbox({ mode }) {
     });
   }
 
+  function openCompose(initial) {
+    setCompose(initial);
+    setDialog('compose');
+  }
+
+  const composeNew = () => openCompose({ kind: 'new', to: [], cc: [], bcc: [], subject: '', bodyText: '' });
+
+  function reply(message, { all = false } = {}) {
+    const { to, cc } = replyRecipients(message, user.email, { all });
+    openCompose({
+      kind: all ? 'replyAll' : 'reply',
+      threadId: message.threadId,
+      to,
+      cc,
+      bcc: [],
+      subject: replySubject(message.subject),
+      bodyText: quoteMessage(message),
+    });
+  }
+
+  // r and a answer the newest message in the open conversation that is not a draft.
+  function replyToOpen(options) {
+    if (!threadId || !conversation.data) return say('Open a conversation to reply to it.');
+    const newest = conversation.data.messages.filter((message) => !message.isDraft).at(-1);
+    if (!newest) return say('There is nothing to reply to in this conversation yet.');
+    reply(newest, options);
+  }
+
+  function continueDraft(draft) {
+    const addresses = (people = []) => people.map((person) => person.address);
+    openCompose({
+      kind: 'draft',
+      draftId: draft.id,
+      threadId: draft.threadId,
+      to: addresses(draft.to),
+      cc: addresses(draft.cc),
+      bcc: addresses(draft.bcc),
+      subject: draft.subject,
+      bodyText: draft.bodyText,
+    });
+  }
+
+  function composeClosed(outcome) {
+    setDialog(null);
+    setCompose(null);
+    if (COMPOSE_NOTICES[outcome]) say(COMPOSE_NOTICES[outcome]);
+  }
+
   function escape() {
     if (selectedIds.length > 0) clearSelection();
     else if (threadId) navigate(listPath);
@@ -208,15 +263,27 @@ export default function Mailbox({ mode }) {
       x: selectOpen,
       e: archiveTargets,
       z: () => notice?.undo?.(),
+      c: composeNew,
+      r: () => replyToOpen(),
+      a: () => replyToOpen({ all: true }),
       '/': focusSearch,
       '?': () => setDialog('help'),
       Escape: escape,
       'mod+k': () => setDialog((open) => (open === 'palette' ? null : 'palette')),
     },
-    { enabled: dialog === null && !notFound, always: notFound ? [] : ['mod+k'], repeat: ['j', 'k'] },
+    {
+      enabled: dialog === null && !notFound,
+      // Not while writing: opening the palette would replace the compose
+      // window and lose whatever had not been saved yet.
+      always: notFound || dialog === 'compose' ? [] : ['mod+k'],
+      repeat: ['j', 'k'],
+    },
   );
 
   const commands = [
+    { id: 'compose', title: 'Compose', keys: 'c', run: composeNew },
+    { id: 'reply', title: 'Reply', keys: 'r', run: () => replyToOpen() },
+    { id: 'reply-all', title: 'Reply all', keys: 'a', run: () => replyToOpen({ all: true }) },
     { id: 'next', title: 'Next conversation', keys: 'j', run: next },
     { id: 'previous', title: 'Previous conversation', keys: 'k', run: previous },
     { id: 'archive', title: 'Archive', keys: 'e', run: archiveTargets },
@@ -305,7 +372,7 @@ export default function Mailbox({ mode }) {
       </div>
 
       <div className={`${threadId ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col bg-stone-50`}>
-        <ReadingPane threadId={threadId} closeTo={listPath} />
+        <ReadingPane threadId={threadId} closeTo={listPath} onReply={reply} onContinueDraft={continueDraft} />
       </div>
 
       {dialog === 'palette' && (
@@ -324,6 +391,7 @@ export default function Mailbox({ mode }) {
           <Sidebar onNavigate={() => setDialog(null)} />
         </Dialog>
       )}
+      {dialog === 'compose' && compose && <ComposeWindow initial={compose} onClose={composeClosed} />}
 
       <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 flex justify-center px-4">
         {notice && (

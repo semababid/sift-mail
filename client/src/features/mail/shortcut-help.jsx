@@ -7,6 +7,10 @@ export const SHORTCUTS = [
   { keys: ['x'], description: 'Select or unselect the open conversation' },
   { keys: ['e'], description: 'Archive the selection, or the open conversation' },
   { keys: ['z'], description: 'Undo the last archive' },
+  { keys: ['c'], description: 'Write a new message' },
+  { keys: ['r'], description: 'Reply to the open conversation' },
+  { keys: ['a'], description: 'Reply to everyone on it' },
+  { keys: [MOD_LABEL, 'Enter'], description: 'Send the message being written' },
   { keys: ['/'], description: 'Search mail' },
   { keys: ['Esc'], description: 'Clear the selection, then close the conversation' },
   { keys: [MOD_LABEL, 'K'], description: 'Open the command palette' },
@@ -32,7 +36,7 @@ export default function ShortcutHelp({ onClose }) {
       <dl className="mt-5 space-y-2.5 text-sm">
         {SHORTCUTS.map(({ keys, description }) => (
           <div key={description} className="flex items-center gap-4">
-            <dt className="flex w-20 shrink-0 gap-1">
+            <dt className="flex w-24 shrink-0 gap-1">
               {keys.map((key) => (
                 <kbd key={key} className="min-w-6 rounded border border-stone-300 bg-stone-50 px-1.5 text-center text-xs">
                   {key}
