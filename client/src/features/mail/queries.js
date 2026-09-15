@@ -119,3 +119,18 @@ export function useArchive() {
     },
   });
 }
+
+// Undo for archive. A conversation coming back has no row in the cached inbox
+// to update, so the lists on screen load again and the rest are marked stale.
+export function useMoveToInbox() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: threadAction('moveToInbox'),
+    onSuccess: (threads) => {
+      applyUpdatedThreads(queryClient, threads);
+      queryClient.invalidateQueries({ queryKey: ['threads'] });
+      queryClient.invalidateQueries({ queryKey: ['search'], refetchType: 'none' });
+      queryClient.invalidateQueries({ queryKey: labelsKey });
+    },
+  });
+}

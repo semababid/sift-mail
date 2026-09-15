@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
+import Dialog from '../components/dialog.jsx';
 import Sidebar from '../features/mail/sidebar.jsx';
 import ThreadList from '../features/mail/thread-list.jsx';
 import ReadingPane from '../features/mail/reading-pane.jsx';
@@ -7,13 +8,19 @@ import SearchBox from '../features/mail/search-box.jsx';
 import CommandPalette from '../features/mail/command-palette.jsx';
 import ShortcutHelp from '../features/mail/shortcut-help.jsx';
 import { FOLDERS, folderName } from '../features/mail/folders.js';
-import { useArchive, useLabels, useSearch, useThreadList } from '../features/mail/queries.js';
+import { useArchive, useLabels, useMoveToInbox, useSearch, useThreadList } from '../features/mail/queries.js';
 import { useLogout } from '../features/auth/session.js';
 import { useShortcuts } from '../lib/shortcuts.js';
 import NotFound from './not-found.jsx';
 
 const NOTICE_MS = 4000;
+// Long enough to spot a mistake and reach for Undo.
+const UNDO_MS = 8000;
 const noop = () => {};
+
+// Below lg, the list and the search box above it are hidden while a
+// conversation is open. jsdom has no matchMedia, which counts as wide.
+const isWide = () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 1024px)').matches;
 
 // Folders and labels on the left, conversations in the middle, the open one on
 // the right. What is on screen comes from the address alone, /inbox/<thread>,
@@ -22,8 +29,8 @@ const noop = () => {};
 //
 // `mode` is "folder", "label" or "search", set by the route.
 //
-// Narrower screens show fewer panes: no sidebar below md, and below lg either
-// the list or the open conversation.
+// Narrower screens show fewer panes: below md the sidebar moves into a menu,
+// and below lg either the list or the open conversation shows.
 export default function Mailbox({ mode }) {
   const { folder, labelId, threadId } = useParams();
   const [searchParams] = useSearchParams();
@@ -31,6 +38,7 @@ export default function Mailbox({ mode }) {
   const labels = useLabels();
   const logout = useLogout();
   const archive = useArchive();
+  const moveToInbox = useMoveToInbox();
   const searchRef = useRef(null);
 
   const query = mode === 'search' ? (searchParams.get('q') ?? '').trim() : '';
@@ -77,6 +85,7 @@ export default function Mailbox({ mode }) {
   const [dialog, setDialog] = useState(null);
   const [queued, setQueued] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [focusSearchWhenClosed, setFocusSearchWhenClosed] = useState(false);
 
   // A selection belongs to one view. Moving to another folder, label or search
   // starts with nothing selected, and so does coming back.
@@ -84,11 +93,12 @@ export default function Mailbox({ mode }) {
   if (selection.view !== listPath) setSelection({ view: listPath, ids: [] });
   const selectedIds = selection.view === listPath ? selection.ids : [];
 
-  const say = (text) => setNotice({ text, at: Date.now() });
+  // `undo`, when given, puts an Undo button on the notice and is what z runs.
+  const say = (text, undo = null) => setNotice({ text, undo, at: Date.now() });
 
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), NOTICE_MS);
+    const timer = setTimeout(() => setNotice(null), notice.undo ? UNDO_MS : NOTICE_MS);
     return () => clearTimeout(timer);
   }, [notice]);
 
@@ -100,6 +110,12 @@ export default function Mailbox({ mode }) {
     setQueued(null);
     queued.run();
   }, [queued, dialog]);
+
+  useEffect(() => {
+    if (!focusSearchWhenClosed || threadId) return;
+    setFocusSearchWhenClosed(false);
+    searchRef.current?.focus();
+  }, [focusSearchWhenClosed, threadId]);
 
   function openAt(index) {
     const thread = threads[index];
@@ -139,14 +155,32 @@ export default function Mailbox({ mode }) {
     const after = closing
       ? (threads.slice(openIndex + 1).find(staying) ?? threads.slice(0, openIndex).reverse().find(staying))
       : null;
+    const reopen = closing ? threadPath(threadId) : null;
 
     archive.mutate(targets, {
       onSuccess: () => {
-        say(targets.length === 1 ? 'Conversation archived.' : `${targets.length} conversations archived.`);
+        say(
+          targets.length === 1 ? 'Conversation archived.' : `${targets.length} conversations archived.`,
+          () => undoArchive(targets, reopen),
+        );
         clearSelection();
         if (closing) navigate(after ? threadPath(after.id) : listPath, { replace: true });
       },
       onError: () => say('Sift could not archive that. Try again.'),
+    });
+  }
+
+  // Undo sends the inbox action, which brings back everything in these
+  // conversations that sits in the archive. The notice goes first, so a second
+  // z or click finds nothing left to undo and sends no second request.
+  function undoArchive(ids, reopen) {
+    setNotice(null);
+    moveToInbox.mutate(ids, {
+      onSuccess: () => {
+        say(ids.length === 1 ? 'Moved back to the inbox.' : `${ids.length} conversations moved back to the inbox.`);
+        if (reopen) navigate(reopen, { replace: true });
+      },
+      onError: () => say('Sift could not undo that.', () => undoArchive(ids, reopen)),
     });
   }
 
@@ -156,6 +190,13 @@ export default function Mailbox({ mode }) {
   }
 
   function focusSearch() {
+    if (threadId && !isWide()) {
+      // The box is hidden behind the open conversation. It takes the cursor
+      // once the conversation has closed and the list is back on screen.
+      navigate(listPath);
+      setFocusSearchWhenClosed(true);
+      return;
+    }
     searchRef.current?.focus();
     searchRef.current?.select();
   }
@@ -166,6 +207,7 @@ export default function Mailbox({ mode }) {
       k: previous,
       x: selectOpen,
       e: archiveTargets,
+      z: () => notice?.undo?.(),
       '/': focusSearch,
       '?': () => setDialog('help'),
       Escape: escape,
@@ -178,6 +220,7 @@ export default function Mailbox({ mode }) {
     { id: 'next', title: 'Next conversation', keys: 'j', run: next },
     { id: 'previous', title: 'Previous conversation', keys: 'k', run: previous },
     { id: 'archive', title: 'Archive', keys: 'e', run: archiveTargets },
+    ...(notice?.undo ? [{ id: 'undo', title: 'Undo archive', keys: 'z', run: notice.undo }] : []),
     { id: 'select', title: 'Select conversation', keys: 'x', run: selectOpen },
     { id: 'search', title: 'Search mail', keys: '/', run: focusSearch },
     ...FOLDERS.map((entry) => ({ id: `folder-${entry.id}`, title: `Go to ${entry.name}`, run: () => navigate(`/${entry.id}`) })),
@@ -236,7 +279,12 @@ export default function Mailbox({ mode }) {
       <div
         className={`${threadId ? 'hidden lg:flex' : 'flex'} min-w-0 flex-1 flex-col border-r border-stone-200 lg:w-96 lg:flex-none`}
       >
-        <SearchBox inputRef={searchRef} query={query} onOpenPalette={() => setDialog('palette')} />
+        <SearchBox
+          inputRef={searchRef}
+          query={query}
+          onOpenPalette={() => setDialog('palette')}
+          onOpenMenu={() => setDialog('menu')}
+        />
         {selectedIds.length > 0 && (
           <div className="flex items-center gap-3 border-b border-stone-200 bg-sky-50 px-4 py-2 text-sm">
             <p className="flex-1">{selectedIds.length} selected</p>
@@ -271,9 +319,23 @@ export default function Mailbox({ mode }) {
         />
       )}
       {dialog === 'help' && <ShortcutHelp onClose={() => setDialog(null)} />}
+      {dialog === 'menu' && (
+        <Dialog label="Menu" side="left" onClose={() => setDialog(null)} className="h-full max-w-[85vw] shadow-xl">
+          <Sidebar onNavigate={() => setDialog(null)} />
+        </Dialog>
+      )}
 
-      <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 flex justify-center">
-        {notice && <p className="rounded-md bg-stone-900 px-4 py-2 text-sm text-white shadow-lg">{notice.text}</p>}
+      <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 flex justify-center px-4">
+        {notice && (
+          <p className="pointer-events-auto flex items-center gap-4 rounded-md bg-stone-900 px-4 py-2 text-sm text-white shadow-lg">
+            <span>{notice.text}</span>
+            {notice.undo && (
+              <button type="button" onClick={notice.undo} className="font-medium text-sky-300 underline">
+                Undo
+              </button>
+            )}
+          </p>
+        )}
       </div>
     </div>
   );

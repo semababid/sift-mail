@@ -9,7 +9,8 @@ const linkClass = ({ isActive }) =>
     isActive ? 'bg-sky-100 font-medium text-sky-900' : 'text-stone-700 hover:bg-stone-200/60'
   }`;
 
-export default function Sidebar() {
+// `onNavigate` is for the phone menu, which closes once a folder or label is picked.
+export default function Sidebar({ onNavigate }) {
   const user = useSignedInUser();
   const logout = useLogout();
   const labels = useLabels();
@@ -22,7 +23,7 @@ export default function Sidebar() {
         <ul>
           {FOLDERS.map((folder) => (
             <li key={folder.id}>
-              <NavLink to={`/${folder.id}`} className={linkClass}>
+              <NavLink to={`/${folder.id}`} onClick={onNavigate} className={linkClass}>
                 {folder.name}
               </NavLink>
             </li>
@@ -30,7 +31,7 @@ export default function Sidebar() {
         </ul>
 
         <h2 className="mt-6 mb-1 px-3 text-xs font-medium tracking-wide text-stone-500 uppercase">Labels</h2>
-        <LabelLinks labels={labels} />
+        <LabelLinks labels={labels} onNavigate={onNavigate} />
       </nav>
 
       <section aria-label="Signed in" className="border-t border-stone-200 p-4 text-sm">
@@ -49,7 +50,7 @@ export default function Sidebar() {
   );
 }
 
-function LabelLinks({ labels }) {
+function LabelLinks({ labels, onNavigate }) {
   if (labels.isPending) return null;
   if (labels.isError) return <p className="px-3 text-sm text-stone-500">Labels could not be loaded.</p>;
   if (labels.data.length === 0) return <p className="px-3 text-sm text-stone-500">No labels yet.</p>;
@@ -60,6 +61,7 @@ function LabelLinks({ labels }) {
         <li key={label.id}>
           <NavLink
             to={`/label/${label.id}`}
+            onClick={onNavigate}
             aria-label={label.unreadCount > 0 ? `${label.name}, ${label.unreadCount} unread` : label.name}
             className={linkClass}
           >

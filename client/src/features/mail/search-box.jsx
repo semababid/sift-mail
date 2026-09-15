@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { MOD_LABEL } from '../../lib/shortcuts.js';
 
-export default function SearchBox({ inputRef, query, onOpenPalette }) {
+export default function SearchBox({ inputRef, query, onOpenPalette, onOpenMenu }) {
   const navigate = useNavigate();
   const [text, setText] = useState(query);
 
@@ -25,6 +25,17 @@ export default function SearchBox({ inputRef, query, onOpenPalette }) {
 
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 border-b border-stone-200 px-3">
+      {/* Below md the sidebar is hidden, and this is the way to it. */}
+      <button
+        type="button"
+        onClick={onOpenMenu}
+        aria-label="Open menu"
+        className="shrink-0 rounded-md p-1.5 text-stone-600 hover:bg-stone-100 md:hidden"
+      >
+        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="size-5">
+          <path d="M3 5h14M3 10h14M3 15h14" />
+        </svg>
+      </button>
       <form role="search" onSubmit={submit} className="min-w-0 flex-1">
         <label htmlFor="mail-search" className="sr-only">
           Search mail

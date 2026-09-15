@@ -6,6 +6,7 @@ export const SHORTCUTS = [
   { keys: ['k'], description: 'Open the previous conversation' },
   { keys: ['x'], description: 'Select or unselect the open conversation' },
   { keys: ['e'], description: 'Archive the selection, or the open conversation' },
+  { keys: ['z'], description: 'Undo the last archive' },
   { keys: ['/'], description: 'Search mail' },
   { keys: ['Esc'], description: 'Clear the selection, then close the conversation' },
   { keys: [MOD_LABEL, 'K'], description: 'Open the command palette' },

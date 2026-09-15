@@ -118,11 +118,13 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], pageSize
       record(request);
       const body = await request.json();
       state.batches.push(body);
+      if (state.batchDelay) await delay(state.batchDelay);
       if (state.batchStatus) return failure(state.batchStatus);
 
       const actions = {
         markRead: (t) => ({ ...t, hasUnread: false }),
         archive: (t) => ({ ...t, folders: [...new Set(t.folders.map((f) => (f === 'inbox' ? 'archive' : f)))] }),
+        moveToInbox: (t) => ({ ...t, folders: [...new Set(t.folders.map((f) => (f === 'archive' ? 'inbox' : f)))] }),
       };
       const change = actions[body.action];
       if (!change) return failure(400);
