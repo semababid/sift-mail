@@ -6,11 +6,16 @@ export const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl';
 // Names a key press the way bindings are written: "j", "?", "Escape", or
 // "mod+k" for Command on a Mac and Control elsewhere. A press with any other
 // modifier gets no name, so browser and system shortcuts pass straight through.
+//
+// A letter typed without Shift is lowercased, so Caps Lock does not turn every
+// shortcut off. With Shift held, the key stays as it is: "?" needs Shift, and
+// "J" is not "j".
 export function keyName(event, { mac = IS_MAC } = {}) {
   const mod = mac ? event.metaKey : event.ctrlKey;
   const other = mac ? event.ctrlKey : event.metaKey;
   if (event.altKey || other) return null;
-  return mod ? `mod+${event.key.toLowerCase()}` : event.key;
+  const key = event.key.length === 1 && !event.shiftKey ? event.key.toLowerCase() : event.key;
+  return mod ? `mod+${key.toLowerCase()}` : key;
 }
 
 const NOT_TEXT = ['checkbox', 'radio', 'button', 'submit', 'reset'];

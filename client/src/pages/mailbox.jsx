@@ -173,8 +173,16 @@ export default function Mailbox({ mode }) {
   }
   const clearSelection = () => setSelection({ view: listPath, ids: [] });
 
-  // The selection when there is one, otherwise the open conversation.
-  const targetIds = () => (selectedIds.length > 0 ? selectedIds : threadId ? [threadId] : []);
+  // The conversations an action works on: the selection when there is one,
+  // otherwise the open conversation. Each comes from the list, or from the
+  // open conversation itself when a link opened one the list has not loaded.
+  function targetThreads() {
+    const ids = selectedIds.length > 0 ? selectedIds : threadId ? [threadId] : [];
+    const open = conversation.data?.thread;
+    return ids
+      .map((id) => threads.find((thread) => thread.id === id) ?? (open?.id === id ? open : null))
+      .filter(Boolean);
+  }
 
   function selectOpen() {
     if (threadId) toggleSelected(threadId);
@@ -184,9 +192,7 @@ export default function Mailbox({ mode }) {
   const toggleStar = (thread) => (thread.isStarred ? unstar : star).mutate({ ids: [thread.id] });
 
   function starTargets() {
-    const known = targetIds()
-      .map((id) => threads.find((thread) => thread.id === id) ?? (conversation.data?.thread.id === id ? conversation.data.thread : null))
-      .filter(Boolean);
+    const known = targetThreads();
     if (known.length === 0) return say('Open or select a conversation to star it.');
     // A selection with some starred and some not gets starred, rather than
     // having the stars it already has taken off.
@@ -195,11 +201,10 @@ export default function Mailbox({ mode }) {
   }
 
   function archiveTargets() {
-    const ids = targetIds();
-    if (ids.length === 0) return say('Open or select a conversation to archive it.');
+    const known = targetThreads();
+    if (known.length === 0) return say('Open or select a conversation to archive it.');
 
-    const inInbox = new Set(threads.filter((thread) => thread.folders.includes('inbox')).map((thread) => thread.id));
-    const targets = ids.filter((id) => inInbox.has(id));
+    const targets = known.filter((thread) => thread.folders.includes('inbox')).map((thread) => thread.id);
     if (targets.length === 0) return say('Only conversations in the inbox can be archived.');
 
     // When the open conversation is archived, the next one down takes its

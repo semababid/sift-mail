@@ -79,11 +79,15 @@ export default function ComposeWindow({ initial, onClose }) {
   // Saves run one after another. Two at once could each create a draft, or an
   // older update could arrive after a newer one and undo it. Resolves to
   // whether the server now holds what the form shows.
-  function save() {
+  //
+  // A form that matches what was last stored is skipped, unless `needDraft` is
+  // set: sending goes through a stored draft, and a reply sent as it opened
+  // has never been stored at all.
+  function save({ needDraft = false } = {}) {
     queue.current = queue.current.then(async () => {
       const stored = toStored(formRef.current);
       const key = JSON.stringify(stored);
-      if (key === storedKey.current) return true;
+      if (key === storedKey.current && (draftId.current || !needDraft)) return true;
 
       setStatus('saving');
       try {
@@ -181,7 +185,9 @@ export default function ComposeWindow({ initial, onClose }) {
 
     // Sent as the saved draft, so what goes out is exactly what was stored, and
     // the server's claim on the draft stops it going out twice.
-    if (!(await save())) return stayOpen('Sift could not save this message, so it was not sent. Try again.');
+    if (!(await save({ needDraft: true }))) {
+      return stayOpen('Sift could not save this message, so it was not sent. Try again.');
+    }
     try {
       const { thread } = await draftApi.send(draftId.current);
       finish('sent', thread.id);

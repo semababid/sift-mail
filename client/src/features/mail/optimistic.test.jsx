@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { makeMessage, makeThread } from '../../test/mail-fixtures.js';
-import { findList, giveElementsASize, numbered, serve } from '../../test/mailbox.js';
+import { findList, giveElementsASize, numbered, scrollToRow, serve } from '../../test/mailbox.js';
 import { renderApp } from '../../test/render.jsx';
+import { ROW_HEIGHT } from './thread-list.jsx';
 
 giveElementsASize();
 
@@ -89,6 +90,22 @@ describe('starring', () => {
     await waitFor(() => expect(mail.state.answered).toEqual(['star']));
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(rowStar('Nachricht 1')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps a star added while a page of older conversations was on its way', async () => {
+    const mail = serve({ threads: numbered(80), pageSize: 50 });
+    mail.state.listDelay = 200;
+    const { user } = renderApp('/inbox');
+    const list = await findList('Inbox');
+
+    scrollToRow(list, 40);
+    await waitFor(() => expect(mail.cursors()).toEqual([null, '50']));
+    await user.click(rowStar('Nachricht 42'));
+
+    // The page still arrives, and the star is still there once it has.
+    await waitFor(() => expect(list).toHaveStyle({ height: `${80 * ROW_HEIGHT}px` }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(rowStar('Nachricht 42')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('rolls back only the conversation that failed, not a star added to another since', async () => {

@@ -190,9 +190,12 @@ export function useThreadAction(action, { onError } = {}) {
   return useMutation({
     mutationFn: async ({ ids }) => (await api.post('/api/threads/batch', { ids, action })).data.threads,
     onMutate: async ({ ids, previous }) => {
-      // A refetch already on its way would land with the old state and wipe the
-      // change out. Queries still loading for the first time are left alone:
-      // cancelling one would leave it empty with nothing to fetch it again.
+      // A fetch already on its way would land with the old state and wipe the
+      // change out. That includes a list loading its next page: the page is
+      // joined onto the rows as they were when the fetch began, not as they are
+      // now. The list asks for the page again once it is cancelled, which
+      // costs one request. Queries still loading for the first time are left
+      // alone: cancelled, one would sit empty with nothing to fetch it again.
       await Promise.all(
         ['threads', 'search', 'thread'].map((name) =>
           queryClient.cancelQueries({ queryKey: [name], predicate: (query) => query.state.data !== undefined }),

@@ -323,6 +323,20 @@ describe('replying', () => {
     await waitFor(() => expect(mail.count(`GET /api/threads/${thread.id}`)).toBeGreaterThan(detailLoads));
   });
 
+  it('sends a reply left exactly as it opened, storing it first', async () => {
+    const { thread, messages } = conversationWithMara({ onlyMara: true });
+    const mail = serve({ threads: [thread], messages: { [thread.id]: messages } });
+    const { user } = renderApp(`/inbox/${thread.id}`);
+    await screen.findByRole('region', { name: 'AW: Mietvertrag' });
+
+    await user.keyboard('r');
+    await user.keyboard('{Control>}{Enter}{/Control}');
+    expect(await screen.findByText('Message sent.')).toBeInTheDocument();
+    expect(calls(mail)).toEqual(['POST /api/drafts', 'POST /api/drafts/draft-1/send']);
+    expect(mail.state.sent[0]).toMatchObject({ to: [{ address: 'mara@sift.example' }], subject: 'Re: Mietvertrag' });
+    expect(mail.state.sent[0].bodyText).toContain('> anbei der Vertrag.');
+  });
+
   it('says so when r is pressed with no conversation open', async () => {
     const { mail, user } = await openInbox();
 

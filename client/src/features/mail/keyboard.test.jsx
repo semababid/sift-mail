@@ -155,6 +155,20 @@ describe('selecting and archiving', () => {
     expect(screen.getByRole('checkbox', { name: 'Select Posteingang' })).not.toBeChecked();
   });
 
+  it('archives a conversation opened by link before the list has loaded that far down', async () => {
+    const threads = numbered(80);
+    const mail = serve({ threads, pageSize: 50 });
+    const { router, user } = renderApp(`/inbox/${threads[70].id}`);
+    await findList('Inbox');
+    await screen.findByRole('region', { name: 'Nachricht 71' });
+
+    await user.keyboard('e');
+    expect(await screen.findByText('Conversation archived.')).toBeInTheDocument();
+    expect(mail.state.batches).toEqual([{ ids: [threads[70].id], action: 'archive' }]);
+    // Nothing near it is loaded, so the first conversation takes its place.
+    expect(pathOf(router)).toBe(`/inbox/${threads[0].id}`);
+  });
+
   it('will not archive outside the inbox, and says why', async () => {
     const sent = makeThread({ subject: 'Gesendet', folders: ['sent'] });
     const mail = serve({ threads: [sent] });

@@ -13,6 +13,11 @@ describe('keyName', () => {
     expect(keyName(press('?', { shiftKey: true }), { mac: false })).toBe('?');
   });
 
+  it('reads a capital letter typed with Caps Lock as the plain shortcut, but not one typed with Shift', () => {
+    expect(keyName(press('J'), { mac: false })).toBe('j');
+    expect(keyName(press('J', { shiftKey: true }), { mac: false })).toBe('J');
+  });
+
   it('reads Command as mod on a Mac, and leaves Control alone there', () => {
     expect(keyName(press('k', { metaKey: true }), { mac: true })).toBe('mod+k');
     expect(keyName(press('k', { ctrlKey: true }), { mac: true })).toBeNull();
