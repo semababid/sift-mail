@@ -23,13 +23,36 @@ const schema = z
     JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
     ACCESS_TOKEN_TTL: ttl.default('15m'),
     REFRESH_TOKEN_TTL: ttl.default('30d'),
+
+    // Outbound mail. All optional: without a host, mail to addresses outside
+    // Sift is stored but goes nowhere, which is enough for local development
+    // against seeded contacts.
+    SMTP_HOST: z.string().min(1).optional(),
+    SMTP_PORT: z.coerce.number().int().positive().default(465),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
+    // The address mail leaves from. Providers refuse a From that is not the
+    // mailbox they authenticated, so this is one address for every user, with
+    // each user's name on it.
+    SMTP_FROM: z.email().optional(),
   })
   .refine((v) => v.JWT_ACCESS_SECRET !== v.JWT_REFRESH_SECRET, {
     path: ['JWT_REFRESH_SECRET'],
     message: 'must differ from JWT_ACCESS_SECRET, or an access token can be used as a refresh token',
+  })
+  .refine((v) => !v.SMTP_HOST || v.SMTP_FROM, {
+    path: ['SMTP_FROM'],
+    message: 'is required when SMTP_HOST is set',
+  })
+  .refine((v) => !v.SMTP_USER === !v.SMTP_PASSWORD, {
+    path: ['SMTP_PASSWORD'],
+    message: 'SMTP_USER and SMTP_PASSWORD go together',
   });
 
-const parsed = schema.safeParse(process.env);
+// A key left empty in .env, as the example file ships them, means "not set".
+// Without this, SMTP_HOST= would count as a host of no characters.
+const given = Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== ''));
+const parsed = schema.safeParse(given);
 
 if (!parsed.success) {
   const issues = parsed.error.issues

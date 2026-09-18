@@ -3,6 +3,8 @@ import { User, Thread, Message } from '../models/index.js';
 import { refreshThread } from './thread-summary.js';
 import { makeSnippet, normalizeSubject, stripReplyPrefix } from '../lib/text.js';
 import { badRequest, notFound } from '../lib/errors.js';
+import { logger } from '../config/logger.js';
+import { isOutboundConfigured, outboundFrom, sendOutbound } from './outbound.js';
 
 // Internal mail never leaves the server yet, so it gets an RFC Message-ID of
 // its own making. Having one now means replies thread through the same
@@ -125,6 +127,29 @@ export async function sendMessage(sender, input, { draft } = {}) {
     references,
   };
 
+  // Addresses with no Sift account go out over SMTP, and that happens before
+  // anything is written. If the SMTP server refuses, the send fails as a
+  // whole: no sent copy, no inbox copies, and a draft goes back to being a
+  // draft. The other order would leave a message filed under sent that half
+  // its recipients never got.
+  const external = everyone.filter((address) => !byAddress.has(address));
+  let outbound = null;
+  if (external.length > 0 && isOutboundConfigured()) {
+    outbound = await sendOutbound({
+      from: outboundFrom(sender),
+      to,
+      cc,
+      envelopeTo: external,
+      subject,
+      text: bodyText,
+      messageId: rfcMessageId,
+      inReplyTo,
+      references,
+    });
+  } else if (external.length > 0) {
+    logger.warn({ recipients: external.length }, 'no SMTP server configured, mail to outside addresses was not sent');
+  }
+
   if (!thread) {
     thread = await Thread.create({
       userId: sender._id,
@@ -139,6 +164,7 @@ export async function sendMessage(sender, input, { draft } = {}) {
   const sentCopy = {
     ...shared,
     bcc,
+    outbound,
     rfcMessageId,
     folder: 'sent',
     isDraft: false,

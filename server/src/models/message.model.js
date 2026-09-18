@@ -40,6 +40,22 @@ const messageSchema = new mongoose.Schema(
     sentAt: { type: Date, required: true },
     attachments: { type: [attachmentSchema], default: [] },
 
+    // On a sent copy with recipients outside Sift: what the SMTP server said
+    // when the message was handed over. Null when it never went out, either
+    // because everyone on it has a Sift account or because no SMTP server is
+    // configured.
+    outbound: {
+      type: new mongoose.Schema(
+        {
+          accepted: { type: [String], default: [] },
+          rejected: { type: [String], default: [] },
+          at: { type: Date, required: true },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+
     // RFC 5322 headers, populated from stage 4 when real mail starts arriving.
     // Threading prefers these and falls back to normalized subject when absent.
     rfcMessageId: { type: String, default: null },

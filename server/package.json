@@ -14,7 +14,8 @@
     "seed": "node scripts/seed.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval:search": "node scripts/search-eval.js"
+    "eval:search": "node scripts/search-eval.js",
+    "smtp:check": "node scripts/smtp-check.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
@@ -26,6 +27,7 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.20.1",
+    "nodemailer": "^10.0.10",
     "pino": "^9.13.1",
     "pino-http": "^10.5.0",
     "zod": "^4.1.13"

@@ -74,7 +74,8 @@ describe('POST /api/messages', () => {
     expect(Object.keys(toStranger.body).sort()).toEqual(['message', 'thread']);
     expect(Object.keys(toUser.body).sort()).toEqual(['message', 'thread']);
 
-    // Kept on the sent copy for stage 4 to send over SMTP.
+    // Kept on the sent copy. With an SMTP server configured it also goes out,
+    // which outbound.test.js covers.
     const kept = await Message.findById(toStranger.body.message.id).lean();
     expect(kept.to.map((a) => a.address)).toEqual(['nobody@elsewhere.example']);
   });
