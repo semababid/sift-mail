@@ -83,6 +83,11 @@ describe.each([
     'userId_1_intent.label_1_sentAt_-1',
   ],
   [
+    'the message naming this one, for mail that arrived out of order',
+    () => Message.find({ userId, references: '<a@x.example>' }).sort({ sentAt: 1 }),
+    'userId_1_references_1_sentAt_1',
+  ],
+  [
     'embedding backfill',
     () => Message.find({ userId, embeddedAt: null }).sort({ sentAt: -1 }),
     'message_unembedded',

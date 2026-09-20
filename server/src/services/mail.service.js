@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { User, Thread, Message } from '../models/index.js';
 import { refreshThread } from './thread-summary.js';
 import { makeSnippet, normalizeSubject, stripReplyPrefix } from '../lib/text.js';
+import { MAX_REFERENCES, referenceChain } from '../lib/headers.js';
+import { findThreadFor } from './threading.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { logger } from '../config/logger.js';
 import { isOutboundConfigured, outboundFrom, sendOutbound } from './outbound.js';
@@ -10,10 +12,6 @@ import { isOutboundConfigured, outboundFrom, sendOutbound } from './outbound.js'
 // its own making. Having one now means replies thread through the same
 // References lookup that real mail will use from stage 4.
 const newRfcMessageId = () => `<${crypto.randomUUID()}@sift.local>`;
-
-// References grow by one id per reply. Threading only needs the recent end,
-// and mail clients commonly trim the chain around this length.
-const MAX_REFERENCES = 20;
 
 // Lowercases and deduplicates across all three lists. An address given twice
 // keeps its most visible place: to over cc, cc over bcc.
@@ -70,17 +68,15 @@ async function replyContext(thread, excludeId) {
   return { isReply: recent.length > 0, parent: recent.find((m) => m.rfcMessageId) ?? null };
 }
 
-// The recipient's side of the conversation: whichever of their threads holds a
-// message this one refers to. Failing that, the conversation is new to them.
-async function recipientThreadId(recipient, { inReplyTo, references, subject, sentAt }) {
-  const ids = [...references, inReplyTo].filter(Boolean);
-  if (ids.length > 0) {
-    const earlier = await Message.findOne({ userId: recipient._id, rfcMessageId: { $in: ids } })
-      .sort({ sentAt: -1 })
-      .select('threadId');
-    if (earlier) return earlier.threadId;
-  }
+// The recipient's side of the conversation. Threading is by headers alone:
+// mail between Sift users always carries them, and the sender has already said
+// whether this is a reply, so there is nothing for the subject fallback to
+// guess at.
+async function recipientThreadId(recipient, message) {
+  const existing = await findThreadFor(recipient._id, message);
+  if (existing) return existing;
 
+  const { subject, sentAt } = message;
   const thread = await Thread.create({
     userId: recipient._id,
     subject,
@@ -110,10 +106,12 @@ export async function sendMessage(sender, input, { draft } = {}) {
   const bodyText = input.bodyText ?? '';
   const sentAt = new Date();
   const rfcMessageId = newRfcMessageId();
-  const inReplyTo = parent?.rfcMessageId ?? null;
-  const references = parent
-    ? [...parent.references, parent.rfcMessageId].slice(-MAX_REFERENCES)
-    : [];
+  // The chain this message hangs off: what its parent already carried, with
+  // the parent itself on the end.
+  const { inReplyTo, references } = referenceChain({
+    inReplyTo: parent?.rfcMessageId,
+    references: parent?.references,
+  });
 
   const shared = {
     from: ownAddress(sender),
@@ -187,7 +185,7 @@ export async function sendMessage(sender, input, { draft } = {}) {
     const isSelf = recipient._id.equals(sender._id);
     const recipientThread = isSelf
       ? thread._id
-      : await recipientThreadId(recipient, { inReplyTo, references, subject, sentAt });
+      : await recipientThreadId(recipient, { rfcMessageId, inReplyTo, references, subject, sentAt });
 
     await Message.create({
       ...shared,

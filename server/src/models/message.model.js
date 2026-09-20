@@ -120,6 +120,11 @@ messageSchema.index(
   { unique: true, partialFilterExpression: { rfcMessageId: { $type: 'string' } } },
 );
 
+// Threading, when a message arrives before the one it answers: which stored
+// message names this id. In-Reply-To is kept in references as well (see
+// lib/headers.js), so this one index covers both headers.
+messageSchema.index({ userId: 1, references: 1, sentAt: 1 });
+
 // Stage 5 backfill: find what has not been embedded yet without scanning the
 // whole collection. Only indexes the rows the backfill actually wants.
 messageSchema.index(

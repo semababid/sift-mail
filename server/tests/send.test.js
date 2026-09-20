@@ -131,6 +131,23 @@ describe('POST /api/messages', () => {
     expect(benInbox.at(-1).references).toHaveLength(2);
   });
 
+  it('keeps the References chain from growing without end', async () => {
+    const { anna } = await everyone();
+    const first = await send(anna, { to: [people.ben.email], subject: 'Lang' });
+    const threadId = first.body.thread.id;
+
+    let last;
+    for (let i = 0; i < 24; i += 1) {
+      last = await send(anna, { to: [people.ben.email], threadId, bodyText: `nummer ${i}` });
+    }
+
+    const stored = await Message.findById(last.body.message.id).lean();
+    // Trimmed from the old end, so the nearest ancestors are the ones kept.
+    expect(stored.references).toHaveLength(20);
+    expect(stored.references.at(-1)).toBe(stored.inReplyTo);
+    expect(new Set(stored.references).size).toBe(20);
+  });
+
   it('trims the subject', async () => {
     const { anna } = await everyone();
     const res = await send(anna, { to: [people.ben.email], subject: '   Hallo   ' });
