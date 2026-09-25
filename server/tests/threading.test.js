@@ -139,7 +139,7 @@ describe('threading by headers', () => {
 
 describe('threading by subject, for mail with no headers', () => {
   const headerless = (overrides) => arriving({ rfcMessageId: null, inReplyTo: null, references: [], ...overrides });
-  const withFallback = (message) => findThreadFor(userId, message, { subjectFallback: true, selfAddress: ME });
+  const withFallback = (message) => findThreadFor(userId, message, { subjectFallback: true, selfAddresses: [ME] });
 
   it('joins a conversation with the same subject and somebody in common', async () => {
     const thread = await stored({ subject: 'Wohnung', participants: [MARA, ME] });

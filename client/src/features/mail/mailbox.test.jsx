@@ -193,6 +193,24 @@ describe('reading a conversation', () => {
     expect(window.__opened).toBeUndefined();
   });
 
+  it('says when imported text is still on its way, or could not be fetched', async () => {
+    const thread = makeThread({ subject: 'Importiert' });
+    serve({
+      threads: [thread],
+      messages: {
+        [thread.id]: [
+          makeMessage(thread, { bodyText: '', bodyStatus: 'pending' }),
+          makeMessage(thread, { bodyText: '', bodyStatus: 'unavailable' }),
+        ],
+      },
+    });
+    renderApp(`/inbox/${thread.id}`);
+
+    const [pending, unavailable] = within(await screen.findByRole('region', { name: 'Importiert' })).getAllByRole('article');
+    expect(pending).toHaveTextContent('The text of this message is still being fetched.');
+    expect(unavailable).toHaveTextContent('The text of this message could not be fetched from the mail server.');
+  });
+
   it('marks an unread conversation read when it opens, with one request', async () => {
     const unread = makeThread({ subject: 'Neue Nachricht', hasUnread: true, labelIds: [UNI.id] });
     const read = makeThread({ subject: 'Schon gelesen' });

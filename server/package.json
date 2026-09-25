@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "eval:search": "node scripts/search-eval.js",
-    "smtp:check": "node scripts/smtp-check.js"
+    "smtp:check": "node scripts/smtp-check.js",
+    "sync": "node scripts/imap-sync.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
@@ -25,7 +26,9 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
+    "imapflow": "^2.0.6",
     "jsonwebtoken": "^9.0.3",
+    "mailparser": "^3.9.28",
     "mongoose": "^8.20.1",
     "nodemailer": "^10.0.10",
     "pino": "^9.13.1",

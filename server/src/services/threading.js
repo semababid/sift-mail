@@ -54,14 +54,17 @@ async function byNamedChild(userId, rfcMessageId) {
 //
 // "Someone in common" means someone other than the owner of the mailbox, who
 // is on almost everything in it and so tells the two conversations apart not
-// at all. Mail addressed to nobody else is left to start its own thread.
+// at all. The owner can have more than one address, as when an imported Gmail
+// inbox is filed under a Sift account. Mail addressed to nobody else is left
+// to start its own thread.
 //
 // A conversation sitting only in trash or spam is left out. Mail that arrives
 // after the user threw the thread away belongs in the inbox on its own.
-async function bySubject(userId, { subject, participants = [], sentAt }, selfAddress) {
+async function bySubject(userId, { subject, participants = [], sentAt }, selfAddresses) {
   const normalizedSubject = normalizeSubject(subject);
+  const own = new Set(selfAddresses.map((address) => address.toLowerCase()));
   const addresses = [...new Set(participants.filter(Boolean).map((address) => address.toLowerCase()))].filter(
-    (address) => address !== selfAddress?.toLowerCase(),
+    (address) => !own.has(address),
   );
   if (!normalizedSubject || addresses.length === 0) return null;
 
@@ -84,10 +87,10 @@ async function bySubject(userId, { subject, participants = [], sentAt }, selfAdd
 // sentAt }, with participants the addresses on it. Answers the id of the
 // thread it joins, or null when it starts one.
 //
-// The subject fallback also wants `selfAddress`, the address this mailbox
+// The subject fallback also wants `selfAddresses`, the addresses this mailbox
 // belongs to, so it can tell who the message is really between.
-export async function findThreadFor(userId, message, { subjectFallback = false, selfAddress } = {}) {
+export async function findThreadFor(userId, message, { subjectFallback = false, selfAddresses = [] } = {}) {
   const byHeaders = (await byNamedParent(userId, message)) ?? (await byNamedChild(userId, message.rfcMessageId));
   if (byHeaders) return byHeaders;
-  return subjectFallback ? bySubject(userId, message, selfAddress) : null;
+  return subjectFallback ? bySubject(userId, message, selfAddresses) : null;
 }

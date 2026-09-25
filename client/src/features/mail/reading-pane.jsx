@@ -154,12 +154,19 @@ function MessageAction({ onClick, children }) {
 // shows as characters and never becomes elements. The HTML version needs a
 // sanitiser before it can be shown, and that is a step of its own.
 function MessageBody({ message }) {
+  // Imported mail arrives in two passes, headers first.
+  if (message.bodyStatus === 'pending') {
+    return <p className="mt-4 text-sm text-stone-500 italic">The text of this message is still being fetched.</p>;
+  }
   if (message.bodyText) {
     return <div className="mt-4 text-sm leading-relaxed break-words whitespace-pre-wrap">{message.bodyText}</div>;
   }
-  const note = message.bodyHtml
-    ? 'This message only has a formatted version, which Sift cannot show yet.'
-    : 'This message has no text.';
+  const note =
+    message.bodyStatus === 'unavailable'
+      ? 'The text of this message could not be fetched from the mail server.'
+      : message.bodyHtml
+        ? 'This message only has a formatted version, which Sift cannot show yet.'
+        : 'This message has no text.';
   return <p className="mt-4 text-sm text-stone-500 italic">{note}</p>;
 }
 

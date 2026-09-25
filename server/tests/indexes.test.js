@@ -88,6 +88,14 @@ describe.each([
     'userId_1_references_1_sentAt_1',
   ],
   [
+    'imported mail still waiting for its text',
+    () =>
+      Message.find({ userId, bodyStatus: 'pending', 'imap.account': 'a@b.example', 'imap.mailbox': 'INBOX' }).sort({
+        sentAt: -1,
+      }),
+    'message_body_pending',
+  ],
+  [
     'embedding backfill',
     () => Message.find({ userId, embeddedAt: null }).sort({ sentAt: -1 }),
     'message_unembedded',

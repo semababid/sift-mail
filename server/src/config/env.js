@@ -35,6 +35,15 @@ const schema = z
     // mailbox they authenticated, so this is one address for every user, with
     // each user's name on it.
     SMTP_FROM: z.email().optional(),
+
+    // Inbound mail over IMAP, for scripts/imap-sync.js. IMAP_OWNER is the Sift
+    // account the synced mail is filed under: one mailbox, one owner, which is
+    // as far as credentials kept in .env can honestly go.
+    IMAP_HOST: z.string().min(1).optional(),
+    IMAP_PORT: z.coerce.number().int().positive().default(993),
+    IMAP_USER: z.string().min(1).optional(),
+    IMAP_PASSWORD: z.string().min(1).optional(),
+    IMAP_OWNER: z.email().optional(),
   })
   .refine((v) => v.JWT_ACCESS_SECRET !== v.JWT_REFRESH_SECRET, {
     path: ['JWT_REFRESH_SECRET'],
@@ -47,6 +56,10 @@ const schema = z
   .refine((v) => !v.SMTP_USER === !v.SMTP_PASSWORD, {
     path: ['SMTP_PASSWORD'],
     message: 'SMTP_USER and SMTP_PASSWORD go together',
+  })
+  .refine((v) => !v.IMAP_HOST || (v.IMAP_USER && v.IMAP_PASSWORD && v.IMAP_OWNER), {
+    path: ['IMAP_HOST'],
+    message: 'IMAP_USER, IMAP_PASSWORD and IMAP_OWNER are all needed once IMAP_HOST is set',
   });
 
 // A key left empty in .env, as the example file ships them, means "not set".

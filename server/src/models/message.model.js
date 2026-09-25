@@ -40,6 +40,27 @@ const messageSchema = new mongoose.Schema(
     sentAt: { type: Date, required: true },
     attachments: { type: [attachmentSchema], default: [] },
 
+    // Stage 4.5. Where an imported message sits on the IMAP server: which
+    // account, which folder, and its UID there. UIDs only mean anything within
+    // one UIDVALIDITY, so that is kept too. Null for mail that never came in
+    // over IMAP.
+    imap: {
+      type: new mongoose.Schema(
+        {
+          account: { type: String, required: true },
+          mailbox: { type: String, required: true },
+          uidValidity: { type: String, required: true },
+          uid: { type: Number, required: true },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
+    // Imported mail is stored from its headers first and gets its body in a
+    // second pass. "unavailable" means the second pass could not fetch it,
+    // because the message was deleted on the server or the mailbox was reset.
+    bodyStatus: { type: String, enum: ['complete', 'pending', 'unavailable'], default: 'complete' },
+
     // On a sent copy with recipients outside Sift: what the SMTP server said
     // when the message was handed over. Null when it never went out, either
     // because everyone on it has a Sift account or because no SMTP server is
@@ -124,6 +145,20 @@ messageSchema.index(
 // message names this id. In-Reply-To is kept in references as well (see
 // lib/headers.js), so this one index covers both headers.
 messageSchema.index({ userId: 1, references: 1, sentAt: 1 });
+
+// Stage 4.5. One stored copy per message on the IMAP server, so an import that
+// runs twice over the same UIDs, after a crash between storing and saving the
+// watermark, adds nothing the second time.
+messageSchema.index(
+  { userId: 1, 'imap.account': 1, 'imap.mailbox': 1, 'imap.uidValidity': 1, 'imap.uid': 1 },
+  { unique: true, partialFilterExpression: { 'imap.uid': { $type: 'number' } }, name: 'message_imap_source' },
+);
+
+// The body pass: messages still waiting for their text, newest first.
+messageSchema.index(
+  { userId: 1, sentAt: -1 },
+  { partialFilterExpression: { bodyStatus: 'pending' }, name: 'message_body_pending' },
+);
 
 // Stage 5 backfill: find what has not been embedded yet without scanning the
 // whole collection. Only indexes the rows the backfill actually wants.
