@@ -5,6 +5,7 @@ import { findThreadFor } from '../threading.js';
 import { parseMessageIds, referenceChain } from '../../lib/headers.js';
 import { makeSnippet, normalizeSubject } from '../../lib/text.js';
 import { logger } from '../../config/logger.js';
+import { storeAttachments } from '../attachment.service.js';
 
 const log = logger.child({ worker: 'imap-import' });
 
@@ -208,6 +209,7 @@ export async function fetchPendingBodies({ user, client, account, mailbox = 'INB
       // Kept for the sanitised HTML view in stage 10. Never shown as it is.
       message.bodyHtml = typeof parsed.html === 'string' ? parsed.html.slice(0, MAX_BODY_CHARS) : '';
       message.snippet = makeSnippet(text);
+      message.attachments = await storeAttachments(message, parsed.attachments);
       message.bodyStatus = 'complete';
     }
 

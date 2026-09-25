@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
-import { inject } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, inject } from 'vitest';
 
 // Runs before each test file is imported, so everything here is in place
 // before src/config/env.js parses process.env. Every key the schema reads is
@@ -20,3 +23,10 @@ process.env.MONGO_URI = `${inject('mongoUri')}sift_test_${crypto.randomUUID().sl
 for (const key of ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD', 'SMTP_FROM']) process.env[key] = '';
 // The same for IMAP. Tests hand the importer a fake mailbox instead.
 for (const key of ['IMAP_HOST', 'IMAP_PORT', 'IMAP_USER', 'IMAP_PASSWORD', 'IMAP_OWNER']) process.env[key] = '';
+
+// Attachment files go to a folder of this test file's own, removed afterwards,
+// never to the data folder a developer's own mail is in.
+const attachmentDir = mkdtempSync(path.join(os.tmpdir(), 'sift-attachments-'));
+process.env.ATTACHMENT_DIR = attachmentDir;
+process.env.ATTACHMENT_MAX_MB = '1';
+afterAll(() => rmSync(attachmentDir, { recursive: true, force: true }));

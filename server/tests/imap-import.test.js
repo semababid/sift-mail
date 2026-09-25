@@ -4,14 +4,13 @@ import { connect, disconnect, clearDb, signIn, threadSummaryProblems } from './h
 import { createApp } from '../src/app.js';
 import { Message, MailboxSync, Thread } from '../src/models/index.js';
 import { fetchPendingBodies, importNewMail, MAX_BODY_CHARS } from '../src/services/imap/importer.js';
+import { ACCOUNT, MARA, fakeMailbox, mail } from './imap-fixtures.js';
 
 const app = createApp();
 
 beforeAll(connect);
 afterAll(disconnect);
 
-const ACCOUNT = 'sync@mail.example';
-const MARA = { name: 'Mara Klein', address: 'mara@elsewhere.example' };
 const OWNER = { name: 'Semab', address: 'semab@sift.example' };
 
 let owner;
@@ -19,101 +18,6 @@ beforeEach(async () => {
   await clearDb();
   owner = await signIn(app);
 });
-
-// The raw message a server would hand over for a UID.
-function mime({ from, to, subject, messageId, inReplyTo, references, date, text, html }) {
-  const headers = [
-    `From: ${from.name} <${from.address}>`,
-    `To: ${to.map((person) => person.address).join(', ')}`,
-    `Subject: ${subject}`,
-    `Date: ${date.toUTCString()}`,
-    messageId && `Message-ID: ${messageId}`,
-    inReplyTo && `In-Reply-To: ${inReplyTo}`,
-    references && `References: ${references}`,
-    'MIME-Version: 1.0',
-  ].filter(Boolean);
-
-  if (text !== undefined && html !== undefined) {
-    return Buffer.from(
-      [
-        ...headers,
-        'Content-Type: multipart/alternative; boundary="b"',
-        '',
-        '--b',
-        'Content-Type: text/plain; charset=utf-8',
-        '',
-        text,
-        '--b',
-        'Content-Type: text/html; charset=utf-8',
-        '',
-        html,
-        '--b--',
-        '',
-      ].join('\r\n'),
-    );
-  }
-  const type = html !== undefined ? 'text/html' : 'text/plain';
-  return Buffer.from([...headers, `Content-Type: ${type}; charset=utf-8`, '', html ?? text ?? '', ''].join('\r\n'));
-}
-
-// One message on the fake server, in both forms the importer asks for.
-function mail(uid, overrides = {}) {
-  const fields = {
-    from: MARA,
-    to: [{ address: ACCOUNT }],
-    subject: `Nachricht ${uid}`,
-    messageId: `<m${uid}@elsewhere.example>`,
-    inReplyTo: undefined,
-    references: undefined,
-    date: new Date(Date.UTC(2026, 4, 1, 9, uid)),
-    text: `Text ${uid}`,
-    html: undefined,
-    seen: false,
-    ...overrides,
-  };
-  return {
-    uid,
-    flags: new Set(fields.seen ? ['\\Seen'] : []),
-    internalDate: fields.date,
-    envelope: {
-      date: fields.date,
-      subject: fields.subject,
-      messageId: fields.messageId,
-      inReplyTo: fields.inReplyTo,
-      from: [fields.from],
-      to: fields.to,
-      cc: [],
-    },
-    references: fields.references ?? '',
-    raw: mime(fields),
-  };
-}
-
-// A mailbox on an IMAP server, with the four calls the importer makes.
-function fakeMailbox(messages = [], { uidValidity = '7' } = {}) {
-  const box = new Map(messages.map((message) => [message.uid, message]));
-  const state = { uidValidity, headerRequests: [], sourceRequests: [] };
-  const client = {
-    async open() {
-      return { uidValidity: state.uidValidity };
-    },
-    async uids() {
-      return [...box.keys()];
-    },
-    async headers(uids) {
-      state.headerRequests.push([...uids]);
-      return uids.filter((uid) => box.has(uid)).map((uid) => {
-        const { raw, ...item } = box.get(uid);
-        return item;
-      });
-    },
-    async source(uid) {
-      state.sourceRequests.push(uid);
-      return box.get(uid)?.raw ?? null;
-    },
-  };
-  return { client, state, box, add: (message) => box.set(message.uid, message) };
-}
 
 const run = (client, extra = {}) => importNewMail({ user: owner.user, client, account: ACCOUNT, ...extra });
 const bodies = (client, uidValidity = '7') => fetchPendingBodies({ user: owner.user, client, account: ACCOUNT, uidValidity });

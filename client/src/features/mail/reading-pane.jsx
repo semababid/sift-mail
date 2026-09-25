@@ -5,6 +5,7 @@ import Skeleton from '../../components/skeleton.jsx';
 import StarButton from '../../components/star-button.jsx';
 import { messageDate, personName } from '../../lib/format.js';
 import { replyRecipients } from '../compose/reply.js';
+import Attachments from './attachments.jsx';
 import { useMarkRead, useThread } from './queries.js';
 
 // `onReply(message, { all })`, `onContinueDraft(draft)` and `onToggleStar(thread)`
@@ -127,6 +128,7 @@ function MessageView({ message, selfAddress, onReply, onContinueDraft }) {
       </div>
       {recipients && <p className="mt-0.5 text-sm text-stone-500">to {recipients}</p>}
       <MessageBody message={message} />
+      <Attachments message={message} />
 
       <div className="mt-4 flex gap-2 text-sm">
         {message.isDraft ? (

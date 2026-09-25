@@ -44,6 +44,12 @@ const schema = z
     IMAP_USER: z.string().min(1).optional(),
     IMAP_PASSWORD: z.string().min(1).optional(),
     IMAP_OWNER: z.email().optional(),
+
+    // Where attachment files are kept, and the largest one kept. Past the
+    // limit an attachment is listed on its message but not stored. 25 MB is
+    // what Gmail allows on a message it sends.
+    ATTACHMENT_DIR: z.string().min(1).default(path.join(root, 'data', 'attachments')),
+    ATTACHMENT_MAX_MB: z.coerce.number().positive().default(25),
   })
   .refine((v) => v.JWT_ACCESS_SECRET !== v.JWT_REFRESH_SECRET, {
     path: ['JWT_REFRESH_SECRET'],

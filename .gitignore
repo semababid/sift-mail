@@ -7,3 +7,6 @@ build/
 .DS_Store
 .vite/
 coverage/
+
+# Attachment files, stage 4.3
+data/

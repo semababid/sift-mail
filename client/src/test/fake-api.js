@@ -216,6 +216,15 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
       return HttpResponse.json({ results });
     }),
 
+    // Answers with the bytes in `state.files`, keyed "messageId/index".
+    http.get('/api/messages/:id/attachments/:index', ({ request, params }) => {
+      record(request);
+      const file = state.files?.[`${params.id}/${params.index}`];
+      if (!file) return HttpResponse.json({ error: 'attachment not found', code: 'not_found' }, { status: 404 });
+      if (state.fileStatus) return failure(state.fileStatus);
+      return new HttpResponse(file, { headers: { 'Content-Type': 'application/octet-stream' } });
+    }),
+
     http.get('/api/labels', ({ request }) => {
       record(request);
       return HttpResponse.json({ labels: state.labels });

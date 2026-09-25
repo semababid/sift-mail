@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { conversationWith, listDate, personName } from './format.js';
+import { conversationWith, formatSize, listDate, personName } from './format.js';
 
 const SELF = 'semab@sift.example';
 const me = { name: 'Semab', address: SELF };
@@ -51,5 +51,18 @@ describe('conversationWith', () => {
   it('counts everyone past the third', () => {
     const people = ['Anna', 'Ben', 'Cem', 'Dana', 'Emil'].map((name) => ({ name, address: `${name}@sift.example` }));
     expect(conversationWith([me, ...people], SELF)).toBe('Anna, Ben, Cem +2');
+  });
+});
+
+describe('formatSize', () => {
+  it.each([
+    [0, '0 B'],
+    [812, '812 B'],
+    [1024, '1 KB'],
+    [14_500, '14 KB'],
+    [3.4 * 1024 * 1024, '3.4 MB'],
+    [25 * 1024 * 1024, '25 MB'],
+  ])('%s bytes reads as %s', (bytes, expected) => {
+    expect(formatSize(bytes)).toBe(expected);
   });
 });

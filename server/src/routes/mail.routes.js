@@ -7,6 +7,7 @@ import { sendBody, createDraftBody, updateDraftBody } from '../schemas/mail.sche
 export const messageRouter = Router();
 messageRouter.use(requireAuth);
 messageRouter.post('/', validate({ body: sendBody }), mail.send);
+messageRouter.get('/:id/attachments/:index', mail.downloadAttachment);
 
 export const draftRouter = Router();
 draftRouter.use(requireAuth);

@@ -36,3 +36,11 @@ export function conversationWith(participants, selfAddress) {
   const short = others.map((person) => (person.name ? person.name.split(/\s+/)[0] : person.address.split('@')[0]));
   return others.length > 3 ? `${short.slice(0, 3).join(', ')} +${others.length - 3}` : short.join(', ');
 }
+
+// A file size the way people read one: "812 B", "14 KB", "3.4 MB".
+export function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  const mb = bytes / (1024 * 1024);
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
