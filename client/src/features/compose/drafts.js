@@ -8,6 +8,19 @@ export const draftApi = {
   update: async (id, fields) => (await api.patch(`/api/drafts/${encodeURIComponent(id)}`, fields)).data.draft,
   remove: (id) => api.delete(`/api/drafts/${encodeURIComponent(id)}`),
   send: async (id) => (await api.post(`/api/drafts/${encodeURIComponent(id)}/send`)).data,
+  // The file goes as the raw body, with its name and type alongside. It is read
+  // into memory first, which the size limit keeps small: a buffer sends the
+  // same way everywhere Sift runs, where a File body did not in the test
+  // browser, which sent the text "undefined".
+  upload: async (id, file) =>
+    (
+      await api.post(`/api/drafts/${encodeURIComponent(id)}/attachments`, await file.arrayBuffer(), {
+        params: { filename: file.name, type: file.type || undefined },
+        headers: { 'Content-Type': 'application/octet-stream' },
+      })
+    ).data.draft,
+  removeAttachment: async (id, attachmentId) =>
+    (await api.delete(`/api/drafts/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`)).data.draft,
 };
 
 // Once a message is sent, or a draft kept or thrown away, the lists showing it

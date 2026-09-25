@@ -292,6 +292,7 @@ export default function Mailbox({ mode }) {
       bcc: addresses(draft.bcc),
       subject: draft.subject,
       bodyText: draft.bodyText,
+      attachments: draft.attachments ?? [],
     });
   }
 

@@ -1,6 +1,7 @@
 import { pipeline } from 'node:stream';
 import * as mail from '../services/mail.service.js';
-import { openAttachment } from '../services/attachment.service.js';
+import { addDraftAttachment, openAttachment, removeDraftAttachment } from '../services/attachment.service.js';
+import { HttpError } from '../lib/errors.js';
 
 // The response is the sender's copy and thread, and nothing about delivery.
 // Saying which recipients have Sift accounts would turn this endpoint into the
@@ -45,7 +46,7 @@ function downloadDisposition(filename) {
 // Sift's own origin could run script with the user's session. The sandbox
 // header is there for a browser that opens it anyway.
 export async function downloadAttachment(req, res) {
-  const file = await openAttachment(req.userId, req.params.id, req.params.index);
+  const file = await openAttachment(req.userId, req.params.id, req.params.attachmentId);
 
   res.set({
     'Content-Disposition': downloadDisposition(file.filename),
@@ -57,4 +58,30 @@ export async function downloadAttachment(req, res) {
   pipeline(file.stream, res, (err) => {
     if (err) req.log?.warn({ err: err.message }, 'attachment download stopped early');
   });
+}
+
+// A file for a draft, sent as the raw request body with its name and type in
+// the query string. No multipart parsing: the body streams straight to storage.
+//
+// It has to arrive as application/octet-stream. The JSON parser reads any
+// body labelled JSON before a route sees it, which would leave an uploaded
+// .json file empty by the time it got here.
+export async function uploadAttachment(req, res) {
+  if (!req.is('application/octet-stream')) {
+    throw new HttpError(415, 'send the file as application/octet-stream', 'unsupported_media_type');
+  }
+  const { filename, type } = req.valid.query;
+  const declared = Number(req.get('content-length'));
+  const draft = await addDraftAttachment(req.user, req.params.id, {
+    filename,
+    contentType: type,
+    stream: req,
+    declaredSize: Number.isFinite(declared) ? declared : 0,
+  });
+  res.status(201).json({ draft: draft.toJSON() });
+}
+
+export async function removeAttachment(req, res) {
+  const draft = await removeDraftAttachment(req.user, req.params.id, req.params.attachmentId);
+  res.json({ draft: draft.toJSON() });
 }

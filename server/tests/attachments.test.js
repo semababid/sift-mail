@@ -42,8 +42,8 @@ const binary = (res, callback) => {
   res.on('data', (chunk) => chunks.push(chunk));
   res.on('end', () => callback(null, Buffer.concat(chunks)));
 };
-const download = (who, messageId, index) =>
-  request(app).get(`/api/messages/${messageId}/attachments/${index}`).set('Cookie', who.cookie).buffer(true).parse(binary);
+const download = (who, messageId, attachmentId) =>
+  request(app).get(`/api/messages/${messageId}/attachments/${attachmentId}`).set('Cookie', who.cookie).buffer(true).parse(binary);
 
 describe('attachments on imported mail', () => {
   it('stores each attached file and lists it on the message', async () => {
@@ -51,8 +51,8 @@ describe('attachments on imported mail', () => {
 
     const message = await stored();
     expect(message.attachments).toEqual([
-      { filename: 'Mietvertrag.pdf', contentType: 'application/pdf', size: PDF.content.length, storageKey: expect.any(String) },
-      { filename: 'Foto.jpg', contentType: 'image/jpeg', size: 10, storageKey: expect.any(String) },
+      { id: '0', filename: 'Mietvertrag.pdf', contentType: 'application/pdf', size: PDF.content.length, storageKey: expect.any(String) },
+      { id: '1', filename: 'Foto.jpg', contentType: 'image/jpeg', size: 10, storageKey: expect.any(String) },
     ]);
     const onDisk = await readFile(path.join(env.ATTACHMENT_DIR, message.attachments[0].storageKey), 'utf8');
     expect(onDisk).toBe(PDF.content);
@@ -66,7 +66,7 @@ describe('attachments on imported mail', () => {
 
     const res = await request(app).get(`/api/threads/${message.threadId}`).set('Cookie', owner.cookie);
     expect(res.body.messages[0].attachments).toEqual([
-      { filename: 'Mietvertrag.pdf', contentType: 'application/pdf', size: PDF.content.length, stored: true },
+      { id: '0', filename: 'Mietvertrag.pdf', contentType: 'application/pdf', size: PDF.content.length, stored: true },
     ]);
     expect(JSON.stringify(res.body)).not.toContain(String(owner.user._id) + '/');
   });
@@ -76,7 +76,7 @@ describe('attachments on imported mail', () => {
 
     const message = await stored();
     expect(message.attachments).toEqual([
-      { filename: 'Video.mp4', contentType: 'video/mp4', size: MB + 1, storageKey: null },
+      { id: '0', filename: 'Video.mp4', contentType: 'video/mp4', size: MB + 1, storageKey: null },
     ]);
     await expect(filesOf(message)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -177,12 +177,11 @@ describe('downloading an attachment', () => {
   });
 
   it.each([
-    ['a position past the end', '1'],
-    ['a negative position', '-1'],
-    ['a position that is not a number', 'erste'],
-  ])('answers 404 for %s', async (_case, index) => {
+    ['an id the message does not have', '1'],
+    ['an id that is not one', 'erste'],
+  ])('answers 404 for %s', async (_case, attachmentId) => {
     await importMail(mail(1, { attachments: [PDF] }));
-    const res = await download(owner, (await stored())._id, index);
+    const res = await download(owner, (await stored())._id, attachmentId);
     expect(res.status).toBe(404);
   });
 

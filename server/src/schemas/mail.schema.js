@@ -43,3 +43,9 @@ export const updateDraftBody = z
     bodyText: bodyText.optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'nothing to update' });
+
+// The name and type of an uploaded file. The bytes are the request body.
+export const uploadAttachmentQuery = z.object({
+  filename: z.string().trim().min(1, 'name the file').max(255),
+  type: z.string().max(255).optional(),
+});

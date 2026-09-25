@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import mongoose from 'mongoose';
 import { User, Thread, Message } from '../models/index.js';
 import { refreshThread } from './thread-summary.js';
 import { makeSnippet, normalizeSubject, stripReplyPrefix } from '../lib/text.js';
@@ -7,6 +8,7 @@ import { findThreadFor } from './threading.js';
 import { badRequest, notFound } from '../lib/errors.js';
 import { logger } from '../config/logger.js';
 import { isOutboundConfigured, outboundFrom, sendOutbound } from './outbound.js';
+import { attachmentsForSending, copyAttachments, removeAttachmentFiles } from './attachment.service.js';
 
 // Internal mail never leaves the server yet, so it gets an RFC Message-ID of
 // its own making. Having one now means replies thread through the same
@@ -125,6 +127,13 @@ export async function sendMessage(sender, input, { draft } = {}) {
     references,
   };
 
+  // Only a draft carries attachments: files are uploaded to one before it is
+  // sent. Every file is opened here, before anything goes out, so one that has
+  // gone missing from storage stops the send while there is still nothing to
+  // undo.
+  const attachments = draft ? draft.attachments.map((attachment) => attachment.toObject()) : [];
+  const files = await attachmentsForSending(attachments);
+
   // Addresses with no Sift account go out over SMTP, and that happens before
   // anything is written. If the SMTP server refuses, the send fails as a
   // whole: no sent copy, no inbox copies, and a draft goes back to being a
@@ -132,20 +141,26 @@ export async function sendMessage(sender, input, { draft } = {}) {
   // its recipients never got.
   const external = everyone.filter((address) => !byAddress.has(address));
   let outbound = null;
-  if (external.length > 0 && isOutboundConfigured()) {
-    outbound = await sendOutbound({
-      from: outboundFrom(sender),
-      to,
-      cc,
-      envelopeTo: external,
-      subject,
-      text: bodyText,
-      messageId: rfcMessageId,
-      inReplyTo,
-      references,
-    });
-  } else if (external.length > 0) {
-    logger.warn({ recipients: external.length }, 'no SMTP server configured, mail to outside addresses was not sent');
+  try {
+    if (external.length > 0 && isOutboundConfigured()) {
+      outbound = await sendOutbound({
+        from: outboundFrom(sender),
+        to,
+        cc,
+        envelopeTo: external,
+        subject,
+        text: bodyText,
+        messageId: rfcMessageId,
+        inReplyTo,
+        references,
+        attachments: files,
+      });
+    } else if (external.length > 0) {
+      logger.warn({ recipients: external.length }, 'no SMTP server configured, mail to outside addresses was not sent');
+    }
+  } finally {
+    // Whatever SMTP did or did not read, the files are closed again.
+    for (const file of files) file.content.destroy();
   }
 
   if (!thread) {
@@ -187,8 +202,13 @@ export async function sendMessage(sender, input, { draft } = {}) {
       ? thread._id
       : await recipientThreadId(recipient, { rfcMessageId, inReplyTo, references, subject, sentAt });
 
+    // The id is chosen first, because the recipient's copies of the files are
+    // stored under it.
+    const copyId = new mongoose.Types.ObjectId();
     await Message.create({
+      _id: copyId,
       ...shared,
+      attachments: await copyAttachments(attachments, recipient._id, copyId),
       // A bcc recipient sees their own address and nobody else's. Everyone
       // else sees no bcc at all. The sender's copy is the only full list.
       bcc: bcc.filter((b) => b.address === recipient.email),
@@ -291,6 +311,7 @@ export async function updateDraft(user, draftId, patch) {
 export async function deleteDraft(user, draftId) {
   const draft = await Message.findOneAndDelete({ _id: draftId, userId: user._id, isDraft: true });
   if (!draft) throw notFound('draft not found');
+  await removeAttachmentFiles(draft.attachments);
   await refreshThread(draft.threadId);
 }
 

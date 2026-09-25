@@ -5,12 +5,15 @@ import { FOLDERS, INTENTS, INTENT_SOURCES } from '../lib/constants.js';
 
 const attachmentSchema = new mongoose.Schema(
   {
+    // What the client names an attachment by. Its position will not do: on a
+    // draft, removing one file moves every file after it.
+    id: { type: String, required: true },
     filename: { type: String, required: true },
     contentType: { type: String, default: 'application/octet-stream' },
     size: { type: Number, required: true },
     // Where the file is in storage, or null when it was not kept because it
     // was over the size limit. Never sent to the client, which gets `stored`
-    // instead and downloads by position on the message.
+    // instead and downloads by id.
     storageKey: { type: String, default: null },
   },
   {

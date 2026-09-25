@@ -6,8 +6,8 @@ import { renderApp } from '../../test/render.jsx';
 
 giveElementsASize();
 
-const PDF = { filename: 'Mietvertrag.pdf', contentType: 'application/pdf', size: 14_500, stored: true };
-const VIDEO = { filename: 'Urlaub.mp4', contentType: 'video/mp4', size: 40 * 1024 * 1024, stored: false };
+const PDF = { id: 'a1', filename: 'Mietvertrag.pdf', contentType: 'application/pdf', size: 14_500, stored: true };
+const VIDEO = { id: 'a2', filename: 'Urlaub.mp4', contentType: 'video/mp4', size: 40 * 1024 * 1024, stored: false };
 
 // jsdom has no object URLs and does not follow a download link. These record
 // what the page asked the browser to save.
@@ -34,7 +34,7 @@ async function openMessageWith(attachments, files = {}) {
   const thread = makeThread({ subject: 'Vertrag' });
   const message = makeMessage(thread, { attachments });
   const mail = serve({ threads: [thread], messages: { [thread.id]: [message] } });
-  mail.state.files = Object.fromEntries(Object.entries(files).map(([index, bytes]) => [`${message.id}/${index}`, bytes]));
+  mail.state.files = Object.fromEntries(Object.entries(files).map(([id, bytes]) => [`${message.id}/${id}`, bytes]));
   const view = renderApp(`/inbox/${thread.id}`);
   const list = await screen.findByRole('list', { name: 'Attachments' });
   return { mail, message, list, ...view };
@@ -59,7 +59,7 @@ describe('attachments in the reading pane', () => {
   });
 
   it('downloads the file under its own name', async () => {
-    const { user, list } = await openMessageWith([PDF], { 0: '%PDF-1.4 der Vertrag' });
+    const { user, list } = await openMessageWith([PDF], { a1: '%PDF-1.4 der Vertrag' });
 
     await user.click(within(list).getByRole('button', { name: /Mietvertrag\.pdf/ }));
     await waitFor(() => expect(saved).toHaveLength(1));
@@ -69,9 +69,9 @@ describe('attachments in the reading pane', () => {
     await waitFor(() => expect(within(list).queryByRole('status')).not.toBeInTheDocument());
   });
 
-  it('asks for the second file by its position on the message', async () => {
-    const second = { ...PDF, filename: 'Anlage.pdf' };
-    const { user, list } = await openMessageWith([PDF, second], { 1: 'zweite Datei' });
+  it('asks for the second file by its own id', async () => {
+    const second = { ...PDF, id: 'a9', filename: 'Anlage.pdf' };
+    const { user, list } = await openMessageWith([PDF, second], { a9: 'zweite Datei' });
 
     await user.click(within(list).getByRole('button', { name: /Anlage\.pdf/ }));
     await waitFor(() => expect(saved).toHaveLength(1));
@@ -87,7 +87,7 @@ describe('attachments in the reading pane', () => {
   });
 
   it('says when the download failed for some other reason, and lets it be tried again', async () => {
-    const { user, list, mail } = await openMessageWith([PDF], { 0: 'inhalt' });
+    const { user, list, mail } = await openMessageWith([PDF], { a1: 'inhalt' });
     mail.state.fileStatus = 500;
 
     const button = within(list).getByRole('button', { name: /Mietvertrag\.pdf/ });

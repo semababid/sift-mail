@@ -108,6 +108,7 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
   };
   const calls = [];
   let draftCount = 0;
+  let attachmentCount = 0;
 
   const record = (request) => {
     const url = new URL(request.url);
@@ -216,10 +217,10 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
       return HttpResponse.json({ results });
     }),
 
-    // Answers with the bytes in `state.files`, keyed "messageId/index".
-    http.get('/api/messages/:id/attachments/:index', ({ request, params }) => {
+    // Answers with the bytes in `state.files`, keyed "messageId/attachmentId".
+    http.get('/api/messages/:id/attachments/:attachmentId', ({ request, params }) => {
       record(request);
-      const file = state.files?.[`${params.id}/${params.index}`];
+      const file = state.files?.[`${params.id}/${params.attachmentId}`];
       if (!file) return HttpResponse.json({ error: 'attachment not found', code: 'not_found' }, { status: 404 });
       if (state.fileStatus) return failure(state.fileStatus);
       return new HttpResponse(file, { headers: { 'Content-Type': 'application/octet-stream' } });
@@ -249,6 +250,7 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
         subject: body.subject ?? '',
         bodyText: body.bodyText ?? '',
         bodyHtml: '',
+        attachments: [],
         isDraft: true,
         folder: 'drafts',
         sentAt: new Date().toISOString(),
@@ -277,6 +279,56 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
       };
       state.drafts.set(draft.id, draft);
       return HttpResponse.json({ draft });
+    }),
+
+    // The raw file as the body, its name and type in the query string. Refuses
+    // with `state.uploadStatus` when set, after `state.uploadDelay`.
+    http.post('/api/drafts/:id/attachments', async ({ request, params }) => {
+      record(request);
+      const url = new URL(request.url);
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      state.uploads = [...(state.uploads ?? []), {
+        draftId: params.id,
+        filename: url.searchParams.get('filename'),
+        type: url.searchParams.get('type'),
+        contentType: request.headers.get('content-type'),
+        text: new TextDecoder().decode(bytes),
+      }];
+      if (state.uploadDelay) await delay(state.uploadDelay);
+      if (state.uploadStatus === 413) {
+        return HttpResponse.json(
+          { error: 'attachments can add up to 25 MB per message', code: 'attachment_too_large' },
+          { status: 413 },
+        );
+      }
+      if (state.uploadStatus) return failure(state.uploadStatus);
+      const draft = state.drafts.get(params.id);
+      if (!draft) return draftNotFound();
+
+      attachmentCount += 1;
+      const attachment = {
+        id: `att-${attachmentCount}`,
+        filename: url.searchParams.get('filename'),
+        contentType: url.searchParams.get('type') ?? 'application/octet-stream',
+        size: bytes.length,
+        stored: true,
+      };
+      state.files = { ...state.files, [`${draft.id}/${attachment.id}`]: bytes };
+      const updated = { ...draft, attachments: [...(draft.attachments ?? []), attachment] };
+      state.drafts.set(draft.id, updated);
+      return HttpResponse.json({ draft: updated }, { status: 201 });
+    }),
+
+    http.delete('/api/drafts/:id/attachments/:attachmentId', ({ request, params }) => {
+      record(request);
+      state.removals = [...(state.removals ?? []), params.attachmentId];
+      const draft = state.drafts.get(params.id);
+      if (!draft?.attachments?.some((a) => a.id === params.attachmentId)) {
+        return HttpResponse.json({ error: 'attachment not found', code: 'not_found' }, { status: 404 });
+      }
+      const updated = { ...draft, attachments: draft.attachments.filter((a) => a.id !== params.attachmentId) };
+      state.drafts.set(draft.id, updated);
+      return HttpResponse.json({ draft: updated });
     }),
 
     http.delete('/api/drafts/:id', async ({ request, params }) => {

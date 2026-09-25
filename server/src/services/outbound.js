@@ -38,7 +38,8 @@ export const outboundFrom = (sender) => ({ name: sender.name, address: env.SMTP_
 // Sends one message. `to` and `cc` are the full recipient lists as they
 // appear in the headers, and `envelopeTo` the addresses this copy actually
 // goes to, which leaves out everyone with a Sift account and includes bcc.
-export async function sendOutbound({ from, to, cc, envelopeTo, subject, text, messageId, inReplyTo, references }) {
+// `attachments` are { filename, contentType, content } with content a stream.
+export async function sendOutbound({ from, to, cc, envelopeTo, subject, text, messageId, inReplyTo, references, attachments = [] }) {
   const smtp = getTransport();
   if (!smtp) throw new Error('outbound mail is not configured');
 
@@ -54,6 +55,7 @@ export async function sendOutbound({ from, to, cc, envelopeTo, subject, text, me
       messageId,
       inReplyTo: inReplyTo ?? undefined,
       references: references.length > 0 ? references : undefined,
+      attachments,
     });
   } catch (err) {
     // A 502: the fault is upstream, in the SMTP server or the way to it. The

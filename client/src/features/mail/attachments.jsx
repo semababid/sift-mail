@@ -10,8 +10,8 @@ const RELEASE_URL_MS = 60_000;
 // that expired while the message was open renews itself first, as it does for
 // every other request. The file is handed to the browser as a download once
 // it has arrived.
-async function saveAttachment(messageId, index, filename) {
-  const res = await api.get(`/api/messages/${encodeURIComponent(messageId)}/attachments/${index}`, {
+async function saveAttachment(messageId, attachmentId, filename) {
+  const res = await api.get(`/api/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`, {
     responseType: 'blob',
   });
   const url = URL.createObjectURL(res.data);
@@ -29,11 +29,9 @@ export default function Attachments({ message }) {
 
   return (
     <ul aria-label="Attachments" className="mt-4 flex flex-wrap gap-2">
-      {message.attachments.map((attachment, index) => (
-        // Attachments are fixed once stored, so their position is a stable key.
-        // eslint-disable-next-line react/no-array-index-key
-        <li key={index}>
-          <Attachment messageId={message.id} index={index} attachment={attachment} />
+      {message.attachments.map((attachment) => (
+        <li key={attachment.id}>
+          <Attachment messageId={message.id} attachment={attachment} />
         </li>
       ))}
     </ul>
@@ -42,7 +40,7 @@ export default function Attachments({ message }) {
 
 const NOTES = { downloading: 'Downloading', failed: 'Could not download', gone: 'No longer available' };
 
-function Attachment({ messageId, index, attachment }) {
+function Attachment({ messageId, attachment }) {
   const [state, setState] = useState('idle');
   const { filename } = attachment;
   const size = formatSize(attachment.size);
@@ -58,7 +56,7 @@ function Attachment({ messageId, index, attachment }) {
   async function download() {
     setState('downloading');
     try {
-      await saveAttachment(messageId, index, filename);
+      await saveAttachment(messageId, attachment.id, filename);
       setState('idle');
     } catch (error) {
       setState(error.response?.status === 404 ? 'gone' : 'failed');
