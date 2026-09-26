@@ -5,9 +5,8 @@ export const storage = diskStorage(env.ATTACHMENT_DIR);
 
 export { TooLarge } from './disk.js';
 
-// The most a message's attachments may add up to. A single limit for the
-// whole message rather than each file, because that is what an SMTP server
-// refuses.
+// The most a message's attachments may add up to. One limit for the whole
+// message, since an SMTP server refuses a message by its total size.
 export const MAX_ATTACHMENT_BYTES = env.ATTACHMENT_MAX_MB * 1024 * 1024;
 
 // One key per attachment: whose, which message, which attachment on it.

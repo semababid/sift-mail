@@ -15,8 +15,8 @@ export class TooLarge extends Error {
 }
 
 // Passes bytes through and counts them, and fails the stream as soon as there
-// are more than `limit`, so an upload over the limit stops there rather than
-// filling the disk first and being refused afterwards.
+// are more than `limit`. An upload over the limit stops at that point, before
+// it has filled the disk.
 function byteLimit(limit) {
   let seen = 0;
   const counter = new Transform({
@@ -29,9 +29,9 @@ function byteLimit(limit) {
   return { counter, size: () => seen };
 }
 
-// Files on the local disk under one root folder. The calls are the ones an S3
-// bucket would answer as well, so moving attachments off the server's disk at
-// deploy time means a second implementation of these three, and nothing else.
+// Files on the local disk under one root folder. An S3 bucket can answer the
+// same calls, so moving attachments off the server's disk at deploy time means
+// writing these five again for S3. Nothing that calls them has to change.
 //
 //   put(key, content)             stores a Buffer under key, replacing what was there
 //   putStream(key, stream, limit) the same from a stream -> { size }, or TooLarge
@@ -92,8 +92,13 @@ export function diskStorage(root) {
         if (err.code === 'ENOENT') return null;
         throw err;
       }
-      const { size } = await handle.stat();
-      return { size, stream: handle.createReadStream() };
+      try {
+        const { size } = await handle.stat();
+        return { size, stream: handle.createReadStream() };
+      } catch (err) {
+        await handle.close();
+        throw err;
+      }
     },
 
     async remove(key) {

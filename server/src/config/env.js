@@ -45,9 +45,10 @@ const schema = z
     IMAP_PASSWORD: z.string().min(1).optional(),
     IMAP_OWNER: z.email().optional(),
 
-    // Where attachment files are kept, and the largest one kept. Past the
-    // limit an attachment is listed on its message but not stored. 25 MB is
-    // what Gmail allows on a message it sends.
+    // Where attachment files are kept, and the size limit. A message being
+    // sent may carry this much in all. An imported file over it is listed on
+    // its message but not stored. Gmail refuses a message over 25 MB once it
+    // is encoded, which leaves room for about 18 MB of files.
     ATTACHMENT_DIR: z.string().min(1).default(path.join(root, 'data', 'attachments')),
     ATTACHMENT_MAX_MB: z.coerce.number().positive().default(25),
   })

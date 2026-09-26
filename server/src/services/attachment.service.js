@@ -4,7 +4,8 @@ import { HttpError, notFound } from '../lib/errors.js';
 import { attachmentKey, MAX_ATTACHMENT_BYTES, storage, TooLarge } from './storage/index.js';
 
 const DEFAULT_TYPE = 'application/octet-stream';
-// Enough for any real message, and a stop on a draft being used as a bucket.
+// Enough for any real message. The cap keeps a draft from being used as
+// general file storage.
 export const MAX_ATTACHMENTS = 20;
 
 const MB = 1024 * 1024;
@@ -38,7 +39,7 @@ const totalSize = (attachments) => attachments.reduce((sum, attachment) => sum +
 // they are part of that HTML, not files someone attached.
 //
 // Ids come from each file's position, so fetching the same message a second
-// time writes the same keys and replaces its files rather than adding more.
+// time writes the same keys and overwrites its files.
 // Imported mail is taken as it comes, so the limit applies to each file here,
 // and a file over it is listed without being kept.
 export async function storeAttachments(message, parsedAttachments = []) {
@@ -125,7 +126,10 @@ export async function addDraftAttachment(user, draftId, { filename, contentType,
   return updated;
 }
 
-// Takes one attachment off a draft and deletes its file.
+// Takes one attachment off a draft and deletes its file. Answers the draft as
+// it stands after the removal, built from the result of the one write.
+// Reading it back afterwards could find nothing if the draft was deleted in
+// between, and turn a removal that worked into a 500.
 export async function removeDraftAttachment(user, draftId, attachmentId) {
   const before = await Message.findOneAndUpdate(
     { _id: draftId, userId: user._id, isDraft: true, 'attachments.id': attachmentId },
@@ -137,7 +141,7 @@ export async function removeDraftAttachment(user, draftId, attachmentId) {
 
   const removed = before.attachments.find((attachment) => attachment.id === attachmentId);
   if (removed.storageKey) await storage.remove(removed.storageKey);
-  return Message.findById(draftId);
+  return Message.hydrate({ ...before, attachments: before.attachments.filter((attachment) => attachment !== removed) });
 }
 
 // Deletes the files behind a message's attachments, once the message is gone.
@@ -160,9 +164,9 @@ export async function copyAttachments(attachments, userId, messageId) {
   return copies;
 }
 
-// The files of a message as Nodemailer takes them, streamed from storage.
-// Attachments that were never kept cannot be sent and are refused rather than
-// quietly left out.
+// The files of a message as Nodemailer takes them, streamed from storage. A
+// file that is missing stops the send, so a message never goes out without a
+// file its writer saw attached.
 export async function attachmentsForSending(attachments = []) {
   const opened = [];
   for (const attachment of attachments) {

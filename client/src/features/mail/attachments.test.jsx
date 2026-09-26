@@ -65,7 +65,7 @@ describe('attachments in the reading pane', () => {
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0]).toMatchObject({ href: 'blob:sift/1', filename: 'Mietvertrag.pdf' });
     expect(await saved[0].blob.text()).toBe('%PDF-1.4 der Vertrag');
-    // Done, with nothing left on screen but the file itself.
+    // The status line is gone once the file is saved.
     await waitFor(() => expect(within(list).queryByRole('status')).not.toBeInTheDocument());
   });
 

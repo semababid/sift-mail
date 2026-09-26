@@ -40,7 +40,7 @@ function downloadDisposition(filename) {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`;
 }
 
-// Streams the file from storage rather than reading it into memory first.
+// Streams the file from storage, so a large one is never held in memory whole.
 //
 // Always a download, never shown in the page: an HTML or SVG file opened on
 // Sift's own origin could run script with the user's session. The sandbox
@@ -72,12 +72,27 @@ export async function uploadAttachment(req, res) {
   }
   const { filename, type } = req.valid.query;
   const declared = Number(req.get('content-length'));
-  const draft = await addDraftAttachment(req.user, req.params.id, {
-    filename,
-    contentType: type,
-    stream: req,
-    declaredSize: Number.isFinite(declared) ? declared : 0,
-  });
+  let draft;
+  try {
+    draft = await addDraftAttachment(req.user, req.params.id, {
+      filename,
+      contentType: type,
+      stream: req,
+      declaredSize: Number.isFinite(declared) ? declared : 0,
+    });
+  } catch (err) {
+    // The client closed the connection partway, as when someone closes the
+    // tab during an upload. Storage has already thrown the part away, and
+    // there is nobody left to answer, so it is not logged as a server fault.
+    // The socket is what says so. `req.destroyed` is no use here: Node sets it
+    // once a body has been read to the end, which would swallow every refusal
+    // that comes after a complete upload and leave the client waiting.
+    if (err.code === 'ECONNRESET' && req.socket.destroyed) {
+      req.log?.info({ draftId: req.params.id }, 'upload abandoned by the client');
+      return;
+    }
+    throw err;
+  }
   res.status(201).json({ draft: draft.toJSON() });
 }
 

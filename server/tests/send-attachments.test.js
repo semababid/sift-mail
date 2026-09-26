@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import http from 'node:http';
 import { readdir, rm } from 'node:fs/promises';
+import { Writable } from 'node:stream';
+import pino from 'pino';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import request from 'supertest';
@@ -281,6 +284,45 @@ describe('refusing an upload before reading it all', () => {
   });
 });
 
+describe('an upload the client gives up on', () => {
+  it('leaves nothing behind, and is not logged as a server fault', async () => {
+    const lines = [];
+    const sink = new Writable({
+      write(chunk, encoding, callback) {
+        lines.push(JSON.parse(chunk));
+        callback();
+      },
+    });
+    const logged = createApp({ logger: pino({ level: 'info' }, sink) });
+    const draft = await newDraft(anna);
+
+    const server = logged.listen(0, '127.0.0.1');
+    await new Promise((resolve) => server.once('listening', resolve));
+    await new Promise((resolve) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port: server.address().port,
+        method: 'POST',
+        path: `/api/drafts/${draft.id}/attachments?filename=halb.bin`,
+        headers: { cookie: anna.cookie, 'content-type': 'application/octet-stream', 'content-length': 500_000 },
+      });
+      req.on('error', () => {});
+      req.write(Buffer.alloc(100_000));
+      // Half sent, then the tab closes.
+      setTimeout(() => {
+        req.destroy();
+        setTimeout(resolve, 300);
+      }, 100);
+    });
+    server.close();
+
+    expect(lines.filter((line) => line.level >= 50)).toEqual([]);
+    expect(lines.some((line) => line.msg === 'upload abandoned by the client')).toBe(true);
+    expect(await filesFor(anna, draft.id)).toEqual([]);
+    expect((await Message.findById(draft.id).lean()).attachments).toEqual([]);
+  });
+});
+
 describe('removing from a draft', () => {
   it('takes the file off the draft and deletes it', async () => {
     const draft = await newDraft(anna);
@@ -291,6 +333,18 @@ describe('removing from a draft', () => {
     expect(res.status).toBe(200);
     expect(res.body.draft.attachments.map((a) => a.id)).toEqual([kept.id]);
     expect(await filesFor(anna, draft.id)).toEqual([kept.id]);
+  });
+
+  it('answers with the draft even if it is deleted straight after the removal', async () => {
+    const draft = await newDraft(anna);
+    const { id } = (await upload(anna, draft.id, 'weg')).body.draft.attachments[0];
+    // Reading the draft back would now find nothing.
+    vi.spyOn(Message, 'findById').mockResolvedValue(null);
+
+    const res = await request(app).delete(`/api/drafts/${draft.id}/attachments/${id}`).set('Cookie', anna.cookie);
+    vi.restoreAllMocks();
+    expect(res.status).toBe(200);
+    expect(res.body.draft).toMatchObject({ id: draft.id, attachments: [] });
   });
 
   it('answers 404 for an id the draft does not have', async () => {

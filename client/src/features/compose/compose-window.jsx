@@ -71,9 +71,9 @@ export default function ComposeWindow({ initial, onClose }) {
     formRef.current = form;
   });
 
-  // The ref changes with the state, not after the next render: closing the
-  // window reads it straight after an upload finishes, before React has had a
-  // chance to render, and a stale empty list there threw the draft away.
+  // The ref changes with the state, not after the next render. Closing the
+  // window reads it straight after an upload finishes, before React has
+  // rendered, and an empty list there would throw away a draft that has a file.
   function showAttachments(list) {
     attachmentsRef.current = list;
     setAttachments(list);
@@ -347,7 +347,7 @@ export default function ComposeWindow({ initial, onClose }) {
                 className="inline-flex items-center gap-2 rounded-md border border-dashed border-stone-300 px-3 py-1 text-sm text-stone-500"
               >
                 <span className="max-w-56 truncate">{entry.name}</span>
-                <span>Uploading</span>
+                <span role="status">Uploading</span>
               </li>
             ))}
           </ul>
@@ -373,7 +373,7 @@ export default function ComposeWindow({ initial, onClose }) {
               Cc and Bcc
             </button>
           )}
-          {/* A label rather than a button, so the file input itself takes the
+          {/* A label wrapped round the file input, so the input itself takes the
               click and the keyboard, and needs no script to open. */}
           <label className="cursor-pointer text-sky-700 underline has-[:disabled]:opacity-60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-sky-300">
             Attach files

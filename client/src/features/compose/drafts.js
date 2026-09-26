@@ -8,13 +8,13 @@ export const draftApi = {
   update: async (id, fields) => (await api.patch(`/api/drafts/${encodeURIComponent(id)}`, fields)).data.draft,
   remove: (id) => api.delete(`/api/drafts/${encodeURIComponent(id)}`),
   send: async (id) => (await api.post(`/api/drafts/${encodeURIComponent(id)}/send`)).data,
-  // The file goes as the raw body, with its name and type alongside. It is read
-  // into memory first, which the size limit keeps small: a buffer sends the
-  // same way everywhere Sift runs, where a File body did not in the test
-  // browser, which sent the text "undefined".
+  // The file goes as the raw body, with its name and type alongside. It is
+  // handed over as the File itself, which the browser streams from disk.
+  // Reading it into memory first would load a 2 GB video into the tab before
+  // the server could say it was too large.
   upload: async (id, file) =>
     (
-      await api.post(`/api/drafts/${encodeURIComponent(id)}/attachments`, await file.arrayBuffer(), {
+      await api.post(`/api/drafts/${encodeURIComponent(id)}/attachments`, file, {
         params: { filename: file.name, type: file.type || undefined },
         headers: { 'Content-Type': 'application/octet-stream' },
       })

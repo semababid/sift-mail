@@ -1,5 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { File } from 'node:buffer';
 import { screen, waitFor, within } from '@testing-library/react';
+import { api } from '../../lib/api-client.js';
 import { MARA, SELF, makeMessage, makeThread } from '../../test/mail-fixtures.js';
 import { findList, giveElementsASize, numbered, serve } from '../../test/mailbox.js';
 import { renderApp } from '../../test/render.jsx';
@@ -15,7 +17,11 @@ afterAll(() => {
   timing.autosaveMs = realAutosaveMs;
 });
 
+// Node's File, because a request body built from the test browser's File
+// arrives as the text "undefined". A real browser sends either kind as it is.
 const pdf = () => new File(['%PDF-1.4 Vertrag'], 'Vertrag.pdf', { type: 'application/pdf' });
+
+afterEach(() => vi.restoreAllMocks());
 const notes = () => new File(['Zeile 1'], 'Notizen.txt', { type: 'text/plain' });
 const composeWindow = () => screen.getByRole('dialog', { name: 'New message' });
 const fileList = () => within(composeWindow()).queryByRole('list', { name: 'Attachments' });
@@ -52,12 +58,25 @@ describe('attaching files while writing', () => {
     ]);
   });
 
+  it('hands the file itself to the request, so the browser streams it from disk', async () => {
+    const { user } = await startMessage();
+    const post = vi.spyOn(api, 'post');
+    const file = pdf();
+
+    await attach(user, file);
+    await waitFor(() => expect(fileList()).toHaveTextContent('Vertrag.pdf'));
+    const upload = post.mock.calls.find(([url]) => url.endsWith('/attachments'));
+    // The same object, not a copy of its bytes read into the page first.
+    expect(upload[1]).toBe(file);
+  });
+
   it('shows a file as uploading until the server has it', async () => {
     const { mail, user } = await startMessage();
     mail.state.uploadDelay = 150;
 
     await attach(user, pdf());
-    expect(await within(composeWindow()).findByText('Uploading')).toBeInTheDocument();
+    // Inside the file list: the window's other status line is the draft's.
+    await waitFor(() => expect(within(fileList()).getByRole('status')).toHaveTextContent('Uploading'));
     await waitFor(() => expect(within(composeWindow()).queryByText('Uploading')).not.toBeInTheDocument());
     expect(within(fileList()).getByRole('button', { name: 'Remove Vertrag.pdf' })).toBeInTheDocument();
   });

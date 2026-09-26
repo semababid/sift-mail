@@ -6,10 +6,10 @@ import { formatSize } from '../../lib/format.js';
 // the click cancels the download in some browsers.
 const RELEASE_URL_MS = 60_000;
 
-// Fetched through the API client rather than as a plain link, so a session
-// that expired while the message was open renews itself first, as it does for
-// every other request. The file is handed to the browser as a download once
-// it has arrived.
+// Fetched through the API client, so a session that expired while the message
+// was open renews itself first, as it does for every other request. A plain
+// link would get a 401 in that case. The file is handed to the browser as a
+// download once it has arrived.
 async function saveAttachment(messageId, attachmentId, filename) {
   const res = await api.get(`/api/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`, {
     responseType: 'blob',
