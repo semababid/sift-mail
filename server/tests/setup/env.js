@@ -30,3 +30,11 @@ const attachmentDir = mkdtempSync(path.join(os.tmpdir(), 'sift-attachments-'));
 process.env.ATTACHMENT_DIR = attachmentDir;
 process.env.ATTACHMENT_MAX_MB = '1';
 afterAll(() => rmSync(attachmentDir, { recursive: true, force: true }));
+
+// Model calls in tests go to a fake Ollama each test starts itself. This
+// address has nothing listening, so a call that reaches for the real one
+// fails at once instead of running a model on the developer's machine.
+process.env.AI_PROVIDER = 'ollama';
+process.env.OLLAMA_HOST = 'http://127.0.0.1:9';
+process.env.EMBEDDING_MODEL = 'nomic-embed-text';
+process.env.CHAT_MODEL = 'test-chat-model';

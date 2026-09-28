@@ -45,6 +45,13 @@ const schema = z
     IMAP_PASSWORD: z.string().min(1).optional(),
     IMAP_OWNER: z.email().optional(),
 
+    // The model service for search, triage, summaries and the inbox chat.
+    // "hosted" is only a placeholder until stage 10.3.
+    AI_PROVIDER: z.enum(['ollama', 'hosted']).default('ollama'),
+    OLLAMA_HOST: z.url().default('http://localhost:11434'),
+    EMBEDDING_MODEL: z.string().min(1).default('nomic-embed-text'),
+    CHAT_MODEL: z.string().min(1).default('qwen3.5:9b'),
+
     // Where attachment files are kept, and the size limit. A message being
     // sent may carry this much in all. An imported file over it is listed on
     // its message but not stored. Gmail refuses a message over 25 MB once it
