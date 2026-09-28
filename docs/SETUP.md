@@ -19,10 +19,10 @@ I checked this machine. Most of it is already there.
 brew install node@24
 ```
 
-**An embedding model.** You have a chat model but no embedder, and stage 5 cannot start without one. Small download, 274 MB.
+**An embedding model.** You have a chat model but no embedder, and stage 5 cannot start without one. A 1.2 GB download. It is bge-m3 rather than the smaller nomic-embed-text because most of this mailbox is German, and in a comparison on the seeded mail only bge-m3 found German mail from questions asked in English (`npm run eval:embeddings --workspace=server`).
 
 ```bash
-ollama pull nomic-embed-text
+ollama pull bge-m3
 ```
 
 **Mongo and Redis running locally.** Open Docker Desktop first, then from the project root:

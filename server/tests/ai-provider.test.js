@@ -128,10 +128,16 @@ describe('embed', () => {
   });
 
   it('says the size is wrong, and what to change, when the model makes vectors of another size', async () => {
-    handle = (req, res) => json(res, 200, { embeddings: [Array(1024).fill(0.1)] });
+    handle = (req, res) => json(res, 200, { embeddings: [Array(512).fill(0.1)] });
     const err = await failureOf(provider().embed(['x']));
     expect(err).toMatchObject({ code: 'not_configured', retryable: false });
-    expect(err.message).toContain('vectors of 1024 numbers, but Sift is set up for 768');
+    expect(err.message).toContain(`vectors of 512 numbers, but Sift is set up for ${EMBEDDING_DIMS}`);
+  });
+
+  it('expects a size of its own when a comparison of models asks for one', async () => {
+    handle = (req, res) => json(res, 200, { embeddings: [Array(512).fill(0.1)] });
+    const [vector] = await provider({ embeddingModel: 'klein-embed', dims: 512 }).embed(['x']);
+    expect(vector).toHaveLength(512);
   });
 
   it.each([
@@ -335,7 +341,7 @@ describe('choosing the provider', () => {
   it('builds the one .env names, once, and lets a test swap it', () => {
     setAi(undefined);
     const first = getAi();
-    expect(first).toMatchObject({ name: 'ollama', embeddingModel: 'ollama/nomic-embed-text', chatModel: 'test-chat-model' });
+    expect(first).toMatchObject({ name: 'ollama', embeddingModel: 'ollama/bge-m3', chatModel: 'test-chat-model' });
     expect(getAi()).toBe(first);
 
     const fake = { name: 'fake' };

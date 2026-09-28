@@ -7,13 +7,15 @@ import { AiError } from './errors.js';
 //
 // provider.name            "ollama", "hosted"
 // provider.embeddingModel  names the vectors this provider makes, as
-//                          "ollama/nomic-embed-text". Stored with every vector,
+//                          "ollama/bge-m3". Stored with every vector,
 //                          because vectors from two models cannot be compared.
 // provider.chatModel       the model generate() uses
 //
 // embed(texts, { purpose, signal }) -> number[][]
-//   One vector per text, in the same order. Each has EMBEDDING_DIMS numbers
-//   and a length of 1, so the similarity of two vectors is their dot product.
+//   One vector per text, in the same order. Each has the provider's `dims`
+//   numbers, which is EMBEDDING_DIMS unless a caller asked for a model of
+//   another size, and a length of 1, so the similarity of two vectors is their
+//   dot product.
 //   `purpose` is "document" for mail being stored and "query" for what
 //   someone searched for. Some models are trained to embed the two
 //   differently, and search is worse if they are mixed up.
@@ -35,14 +37,14 @@ export const PURPOSES = ['document', 'query'];
 // run what they get back through this, so a model change that alters the size
 // fails loudly here instead of quietly filling the database with vectors the
 // search index cannot use.
-export function checkVector(vector, model) {
+export function checkVector(vector, model, dims = EMBEDDING_DIMS) {
   if (!Array.isArray(vector) || !vector.every(Number.isFinite)) {
     throw new AiError('bad_response', `${model} answered with something that is not a vector`);
   }
-  if (vector.length !== EMBEDDING_DIMS) {
+  if (vector.length !== dims) {
     throw new AiError(
       'not_configured',
-      `${model} makes vectors of ${vector.length} numbers, but Sift is set up for ${EMBEDDING_DIMS}. ` +
+      `${model} makes vectors of ${vector.length} numbers, but Sift is set up for ${dims}. ` +
         'Change EMBEDDING_DIMS in lib/constants.js to match, and rebuild the vector index.',
     );
   }

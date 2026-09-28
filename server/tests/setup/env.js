@@ -36,5 +36,5 @@ afterAll(() => rmSync(attachmentDir, { recursive: true, force: true }));
 // fails at once instead of running a model on the developer's machine.
 process.env.AI_PROVIDER = 'ollama';
 process.env.OLLAMA_HOST = 'http://127.0.0.1:9';
-process.env.EMBEDDING_MODEL = 'nomic-embed-text';
+process.env.EMBEDDING_MODEL = 'bge-m3';
 process.env.CHAT_MODEL = 'test-chat-model';

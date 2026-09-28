@@ -1,3 +1,4 @@
+import { EMBEDDING_DIMS } from '../../lib/constants.js';
 import { AiError } from './errors.js';
 import { checkEmbedInput, checkGenerateInput, checkVector } from './contract.js';
 
@@ -21,6 +22,9 @@ export function createOllamaProvider({
   host,
   embeddingModel,
   chatModel,
+  // The vector size to expect. Only a comparison of models sets it; Sift
+  // itself stores vectors of EMBEDDING_DIMS.
+  dims = EMBEDDING_DIMS,
   embedTimeoutMs = EMBED_TIMEOUT_MS,
   generateTimeoutMs = GENERATE_TIMEOUT_MS,
 }) {
@@ -115,7 +119,7 @@ export function createOllamaProvider({
             if (!Array.isArray(vectors) || vectors.length !== texts.length) {
               throw new AiError('bad_response', `Ollama sent ${vectors?.length ?? 'no'} vectors for ${texts.length} texts`);
             }
-            return vectors.map((vector) => checkVector(vector, embeddingModel));
+            return vectors.map((vector) => checkVector(vector, embeddingModel, dims));
           },
         },
       );

@@ -101,8 +101,8 @@ const messageSchema = new mongoose.Schema(
     // Stage 5. The vector lives on the message rather than in a side collection
     // so Atlas can filter by userId and return the message body in one query,
     // instead of a vector search followed by a second fetch to hydrate results.
-    // Excluded from queries by default: 768 floats per document would otherwise
-    // ride along on every inbox list.
+    // Excluded from queries by default: 1,024 numbers per message would
+    // otherwise ride along on every inbox list.
     embedding: { type: [Number], default: undefined, select: false },
     embeddingModel: { type: String, default: null },
     embeddedAt: { type: Date, default: null },

@@ -49,7 +49,7 @@ const schema = z
     // "hosted" is only a placeholder until stage 10.3.
     AI_PROVIDER: z.enum(['ollama', 'hosted']).default('ollama'),
     OLLAMA_HOST: z.url().default('http://localhost:11434'),
-    EMBEDDING_MODEL: z.string().min(1).default('nomic-embed-text'),
+    EMBEDDING_MODEL: z.string().min(1).default('bge-m3'),
     CHAT_MODEL: z.string().min(1).default('qwen3.5:9b'),
 
     // Where attachment files are kept, and the size limit. A message being

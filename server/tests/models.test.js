@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import mongoose from 'mongoose';
 import { connect, disconnect, clearDb } from './helpers.js';
 import { User, Thread, Message, Label } from '../src/models/index.js';
+import { EMBEDDING_DIMS } from '../src/lib/constants.js';
 
 beforeAll(connect);
 afterAll(disconnect);
@@ -53,13 +54,13 @@ describe('Message', () => {
   });
 
   it('keeps the embedding out of normal queries and out of JSON', async () => {
-    const created = await Message.create({ ...base(), embedding: Array.from({ length: 768 }, () => 0.1) });
+    const created = await Message.create({ ...base(), embedding: Array.from({ length: EMBEDDING_DIMS }, () => 0.1) });
 
     const plain = await Message.findById(created._id);
     expect(plain.embedding).toBeUndefined();
 
     const withVector = await Message.findById(created._id).select('+embedding');
-    expect(withVector.embedding).toHaveLength(768);
+    expect(withVector.embedding).toHaveLength(EMBEDDING_DIMS);
     expect(withVector.toJSON()).not.toHaveProperty('embedding');
   });
 
