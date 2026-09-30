@@ -5,3 +5,4 @@ export { Label } from './label.model.js';
 export { RefreshToken } from './refresh-token.model.js';
 export { IntentLabel } from './intent-label.model.js';
 export { MailboxSync } from './mailbox-sync.model.js';
+export { EmbeddingCache } from './embedding-cache.model.js';

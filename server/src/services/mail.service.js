@@ -9,6 +9,7 @@ import { badRequest, notFound } from '../lib/errors.js';
 import { logger } from '../config/logger.js';
 import { isOutboundConfigured, outboundFrom, sendOutbound } from './outbound.js';
 import { attachmentsForSending, copyAttachments, removeAttachmentFiles } from './attachment.service.js';
+import { embedLater } from './embedding/queue.js';
 
 // Internal mail never leaves the server yet, so it gets an RFC Message-ID of
 // its own making. Having one now means replies thread through the same
@@ -193,6 +194,7 @@ export async function sendMessage(sender, input, { draft } = {}) {
   }
   let senderThread = await refreshThread(thread._id);
 
+  const delivered = [message._id];
   // One inbox copy per Sift user on the message, each filed in that user's own
   // thread. Addresses without an account stay on the sent copy, where stage 4
   // will pick them up for SMTP.
@@ -205,6 +207,7 @@ export async function sendMessage(sender, input, { draft } = {}) {
     // The id is chosen first, because the recipient's copies of the files are
     // stored under it.
     const copyId = new mongoose.Types.ObjectId();
+    delivered.push(copyId);
     await Message.create({
       _id: copyId,
       ...shared,
@@ -228,6 +231,8 @@ export async function sendMessage(sender, input, { draft } = {}) {
     if (isSelf) senderThread = refreshed;
   }
 
+  // Every copy carries the same text, so the model is asked for it once.
+  embedLater(delivered);
   return { message, thread: senderThread };
 }
 

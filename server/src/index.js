@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { connectDb, disconnectDb } from './config/db.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
+import { flushEmbeddings } from './services/embedding/queue.js';
 
 // Fly and Railway send SIGTERM and wait about this long before killing the
 // process. Idle keep-alive connections are closed at once; anything still
@@ -28,6 +29,9 @@ async function main() {
 
     server.closeIdleConnections();
     server.close(async () => {
+      // Vectors for mail written in the last moment, inside the deadline:
+      // anything it cuts off is found again by the backfill.
+      await flushEmbeddings();
       clearTimeout(deadline);
       await disconnectDb();
       process.exit(0);
