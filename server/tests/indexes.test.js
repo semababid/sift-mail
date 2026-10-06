@@ -96,9 +96,16 @@ describe.each([
     'message_body_pending',
   ],
   [
-    'embedding backfill',
-    () => Message.find({ userId, embeddedAt: null }).sort({ sentAt: -1 }),
-    'message_unembedded',
+    'embedding backfill, one chunk further on',
+    () =>
+      Message.find({
+        userId,
+        embeddedAt: null,
+        isDraft: false,
+        bodyStatus: { $ne: 'pending' },
+        $or: [{ sentAt: { $lt: new Date() } }, { sentAt: new Date(), _id: { $lt: new mongoose.Types.ObjectId() } }],
+      }).sort({ sentAt: -1, _id: -1 }),
+    'message_needs_vector',
   ],
 ])('%s', (_name, build, expectedIndex) => {
   it(`uses ${expectedIndex} and never sorts in memory`, async () => {

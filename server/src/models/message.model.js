@@ -176,10 +176,12 @@ messageSchema.index(
 );
 
 // Stage 5 backfill: find what has not been embedded yet without scanning the
-// whole collection. Only indexes the rows the backfill actually wants.
+// whole collection. Only indexes the rows the backfill wants, in the order it
+// walks them: newest first, with _id to settle messages that share a second,
+// so each chunk can start straight after the last message of the one before.
 messageSchema.index(
-  { userId: 1, sentAt: -1 },
-  { partialFilterExpression: { embeddedAt: null }, name: 'message_unembedded' },
+  { userId: 1, sentAt: -1, _id: -1 },
+  { partialFilterExpression: { embeddedAt: null }, name: 'message_needs_vector' },
 );
 
 // Stage 6 bucket tabs.

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import crypto from 'node:crypto';
 import request from 'supertest';
 import { connect, disconnect, clearDb, signIn } from './helpers.js';
 import { createApp } from '../src/app.js';
 import { EMBEDDING_DIMS } from '../src/lib/constants.js';
 import { embeddingText } from '../src/lib/embedding-text.js';
 import { EmbeddingCache, Message, Thread } from '../src/models/index.js';
-import { AiError, setAi } from '../src/services/ai/index.js';
+import { setAi } from '../src/services/ai/index.js';
+import { fakeAi } from './fake-ai.js';
 import { EMBED_BATCH, embedMessages } from '../src/services/embedding/embed-messages.js';
 import { createEmbedQueue, flushEmbeddings } from '../src/services/embedding/queue.js';
 import { fetchPendingBodies, importNewMail } from '../src/services/imap/importer.js';
@@ -19,36 +19,6 @@ afterAll(async () => {
   setAi(undefined);
   await disconnect();
 });
-
-// A unit vector made from the text, so the same text always gets the same one.
-function vectorFor(text) {
-  const seed = crypto.createHash('sha256').update(text).digest();
-  const raw = Array.from({ length: EMBEDDING_DIMS }, (_, i) => seed[i % seed.length] - 128 + (i % 7));
-  const norm = Math.sqrt(raw.reduce((sum, x) => sum + x * x, 0));
-  return raw.map((x) => x / norm);
-}
-
-// A model that records every call. `state` makes it slow or failing.
-function fakeAi(model = 'fake/embedder') {
-  const calls = [];
-  const state = { delayMs: 0, fail: false };
-  return {
-    calls,
-    state,
-    name: 'fake',
-    embeddingModel: model,
-    chatModel: null,
-    async embed(texts, { purpose } = {}) {
-      calls.push({ texts: [...texts], purpose });
-      if (state.delayMs) await new Promise((resolve) => setTimeout(resolve, state.delayMs));
-      if (state.fail) throw new AiError('unavailable', 'the model is not running');
-      return texts.map(vectorFor);
-    },
-    generate: async () => {
-      throw new Error('not used here');
-    },
-  };
-}
 
 const people = {
   anna: { email: 'anna@sift.example', password: 'correct-horse', name: 'Anna' },
@@ -122,14 +92,14 @@ describe('embedding mail as it is written', () => {
   });
 
   it('keeps sending when the model is down, and leaves the vector for the backfill', async () => {
-    ai.state.fail = true;
+    ai.state.fail = 'unavailable';
     const res = await send(anna, { to: ['mara@elsewhere.example'], subject: 'Trotzdem', bodyText: 'geht raus' });
     expect(res.status).toBe(201);
     await flushEmbeddings();
     expect((await Message.findById(res.body.message.id).lean()).embeddedAt).toBeNull();
 
     // Back up: the same message embeds when asked again.
-    ai.state.fail = false;
+    ai.state.fail = null;
     expect(await embedMessages([res.body.message.id])).toEqual({ embedded: 1, asked: 1 });
     expect(await EmbeddingCache.countDocuments()).toBe(1);
   });
@@ -207,7 +177,7 @@ describe('embedMessages', () => {
 
   it('writes nothing when the model fails, so the whole batch is found again later', async () => {
     const ids = await stored(3);
-    ai.state.fail = true;
+    ai.state.fail = 'unavailable';
     await expect(embedMessages(ids)).rejects.toMatchObject({ code: 'unavailable' });
     expect(await Message.countDocuments({ embeddedAt: { $ne: null } })).toBe(0);
     expect(await EmbeddingCache.countDocuments()).toBe(0);

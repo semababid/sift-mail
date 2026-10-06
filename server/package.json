@@ -18,7 +18,8 @@
     "eval:embeddings": "node scripts/embedding-eval.js",
     "smtp:check": "node scripts/smtp-check.js",
     "sync": "node scripts/imap-sync.js",
-    "ai:check": "node scripts/ai-check.js"
+    "ai:check": "node scripts/ai-check.js",
+    "embed:backfill": "node scripts/embed-backfill.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",
