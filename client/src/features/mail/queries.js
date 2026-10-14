@@ -5,7 +5,7 @@ export const labelsKey = ['labels'];
 export const threadKey = (id) => ['thread', id];
 // `filter` is { folder } or { label }, the same filter the list endpoint takes.
 export const threadListKey = (filter) => ['threads', filter];
-export const searchKey = (query) => ['search', query];
+export const searchKey = (query, debug = false) => ['search', query, debug];
 
 // None of these pass the abort signal on to axios. A query that uses it is
 // cancelled as soon as nothing watches it, and strict mode unmounts every
@@ -26,15 +26,33 @@ export function useThreadList(filter) {
   });
 }
 
-// Keyword search, best match first. Each row shows the snippet of the message
-// that matched, which is often not the newest one in its conversation.
-export function useSearch(query) {
+// Search by keyword and by meaning together, best match first. Each row shows
+// the snippet of the message that matched, which is often not the newest one
+// in its conversation, and carries what it scored as `found`.
+//
+// The answer is { threads, mode }: mode is "hybrid", or "keyword" while search
+// by meaning cannot run. With `debug` each row's `found` also has its rank and
+// score in both searches, and the answer says why meaning was left out.
+export function useSearch(query, { debug = false } = {}) {
   return useQuery({
-    queryKey: searchKey(query),
+    queryKey: searchKey(query, debug),
     queryFn: async () => {
-      const { results } = (await api.get('/api/search', { params: { q: query } })).data;
-      return results.map(({ thread, match }) => ({ ...thread, snippet: match.snippet || thread.snippet }));
+      const { results, mode, vectorUnavailable } = (
+        await api.get('/api/search', { params: { q: query, debug: debug || undefined } })
+      ).data;
+      return {
+        mode,
+        vectorUnavailable,
+        threads: results.map(({ thread, match, debug: sides }) => ({
+          ...thread,
+          snippet: match.snippet || thread.snippet,
+          found: { score: match.score, ...sides },
+        })),
+      };
     },
+    // Turning scores on or off asks again for the same words. The rows on
+    // screen stay while it does, rather than going back to loading.
+    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[1] === query ? previous : undefined),
     enabled: query.length > 0,
   });
 }
@@ -79,11 +97,18 @@ function updateCachedThreads(queryClient, change) {
     );
   }
 
-  queryClient.setQueriesData({ queryKey: ['search'] }, (data) =>
-    data?.map((row) => {
-      const changed = change(row);
-      return changed === row ? row : { ...changed, snippet: row.snippet };
-    }),
+  // A thread from the server has its own snippet and no scores. The row keeps
+  // the ones the search gave it.
+  queryClient.setQueriesData(
+    { queryKey: ['search'] },
+    (data) =>
+      data && {
+        ...data,
+        threads: data.threads.map((row) => {
+          const changed = change(row);
+          return changed === row ? row : { ...changed, snippet: row.snippet, found: row.found };
+        }),
+      },
   );
 
   for (const query of queryClient.getQueryCache().findAll({ queryKey: ['thread'] })) {
@@ -112,7 +137,7 @@ export function captureThreads(queryClient, ids) {
       .filter((query) => query.state.data)
       .map((query) => ({
         key: query.queryKey,
-        rows: query.state.data.flatMap((thread, index) => (wanted.has(thread.id) ? [{ index, thread }] : [])),
+        rows: query.state.data.threads.flatMap((thread, index) => (wanted.has(thread.id) ? [{ index, thread }] : [])),
       })),
     details: ids.map((id) => [id, queryClient.getQueryData(threadKey(id))]),
   };
@@ -147,7 +172,7 @@ function restoreThreads(queryClient, captured) {
     );
   }
   for (const { key, rows } of captured.searches) {
-    queryClient.setQueryData(key, (data) => data && putBack(data, rows));
+    queryClient.setQueryData(key, (data) => data && { ...data, threads: putBack(data.threads, rows) });
   }
   for (const [id, data] of captured.details) {
     if (data) queryClient.setQueryData(threadKey(id), data);

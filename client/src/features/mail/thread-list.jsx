@@ -19,6 +19,10 @@ const PLACEHOLDER_ROWS = 8;
 //
 // `list` is a folder, a label or search results in one shape, built by the
 // mailbox page: the threads loaded so far and how to load more.
+//
+// Search adds to it: `actions` beside the title, a `note` under it, and with
+// `detail` one more line on every row, as { height, show, say }: the row
+// height that leaves room for it, the line itself, and the same in words.
 export default function ThreadList({
   title,
   emptyText,
@@ -30,7 +34,11 @@ export default function ThreadList({
   selectedIds,
   onToggleSelect,
   onToggleStar,
+  actions = null,
+  note = null,
+  detail = null,
 }) {
+  const rowHeight = detail?.height ?? ROW_HEIGHT;
   const user = useSignedInUser();
   const scrollRef = useRef(null);
   const { threads, hasNextPage, isFetchingNextPage, isFetchNextPageError, fetchNextPage } = list;
@@ -38,7 +46,7 @@ export default function ThreadList({
   const virtualizer = useVirtualizer({
     count: threads.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 6,
   });
   const rows = virtualizer.getVirtualItems();
@@ -60,11 +68,13 @@ export default function ThreadList({
 
   return (
     <section aria-labelledby="thread-list-title" className="flex h-full min-h-0 flex-col">
-      <header className="flex h-12 shrink-0 items-center border-b border-stone-200 px-4">
-        <h1 id="thread-list-title" className="text-base font-semibold">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-stone-200 px-4">
+        <h1 id="thread-list-title" className="flex-1 text-base font-semibold">
           {title}
         </h1>
+        {actions}
       </header>
+      {note}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {list.isPending ? (
@@ -74,7 +84,7 @@ export default function ThreadList({
               <div
                 key={index}
                 className="flex flex-col justify-center gap-2 border-b border-stone-100 pr-4 pl-10"
-                style={{ height: ROW_HEIGHT }}
+                style={{ height: rowHeight }}
               >
                 <Skeleton className="h-3 w-1/3" />
                 <Skeleton className="h-3 w-3/4" />
@@ -124,6 +134,7 @@ export default function ThreadList({
                       open={thread.id === openId}
                       checked={checked}
                       selfAddress={user.email}
+                      detail={detail}
                     />
                     <StarButton
                       label={`Star ${subject}`}
@@ -149,7 +160,7 @@ export default function ThreadList({
   );
 }
 
-function ThreadRow({ thread, to, open, checked, selfAddress }) {
+function ThreadRow({ thread, to, open, checked, selfAddress, detail }) {
   const unread = thread.hasUnread;
   const strong = unread ? 'font-semibold text-stone-900' : '';
   const who = conversationWith(thread.participants, selfAddress);
@@ -165,6 +176,7 @@ function ThreadRow({ thread, to, open, checked, selfAddress }) {
     thread.messageCount > 1 ? `${who}, ${thread.messageCount} messages` : who,
     subject,
     date,
+    detail?.say(thread),
   ]
     .filter(Boolean)
     .join(', ');
@@ -190,6 +202,7 @@ function ThreadRow({ thread, to, open, checked, selfAddress }) {
       <span className={`truncate ${strong || 'text-stone-700'}`}>{subject}</span>
       {/* Room on the right for the star button over this line. */}
       <span className="truncate pr-6 text-stone-500">{thread.snippet}</span>
+      {detail?.show(thread)}
     </Link>
   );
 }

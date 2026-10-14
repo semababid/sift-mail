@@ -193,16 +193,23 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
 
     // Matches the words anywhere in the subject or snippet, and leaves out
     // trash and spam as the real search does. The snippet it sends back is
-    // marked, so a test can tell it apart from the thread's own.
-    http.get('/api/search', ({ request }) => {
+    // marked, so a test can tell it apart from the thread's own. It searches
+    // by keyword and meaning unless `state.searchMode` says "keyword", and
+    // with debug=true gives each result made-up ranks: every one found by
+    // keyword, and all but the first by meaning too.
+    http.get('/api/search', async ({ request }) => {
       record(request);
-      const q = (new URL(request.url).searchParams.get('q') ?? '').trim().toLowerCase();
+      const params = new URL(request.url).searchParams;
+      const q = (params.get('q') ?? '').trim().toLowerCase();
       if (!q) return HttpResponse.json({ error: 'validation failed', code: 'invalid_body' }, { status: 400 });
+      if (state.searchDelay) await delay(state.searchDelay);
+      const debug = params.get('debug') === 'true';
+      const mode = state.searchMode ?? 'hybrid';
 
       const results = state.threads
         .filter((t) => t.folders.some((f) => !HIDDEN_FROM_LABELS.includes(f)))
         .filter((t) => `${t.subject} ${t.snippet}`.toLowerCase().includes(q))
-        .map((thread) => ({
+        .map((thread, i) => ({
           thread,
           match: {
             messageId: `match-${thread.id}`,
@@ -211,10 +218,20 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
             from: thread.participants[0],
             sentAt: thread.lastMessageAt,
             folder: thread.folders[0],
-            score: 1,
+            score: 1 / (61 + i),
           },
+          ...(debug && {
+            debug: {
+              keyword: { rank: i + 1, score: 3 - i * 0.5 },
+              vector: mode === 'hybrid' && i > 0 ? { rank: i, score: 0.9 - i * 0.01 } : null,
+            },
+          }),
         }));
-      return HttpResponse.json({ results });
+      return HttpResponse.json({
+        results,
+        mode,
+        ...(debug && mode === 'keyword' && { vectorUnavailable: 'unavailable' }),
+      });
     }),
 
     // Answers with the bytes in `state.files`, keyed "messageId/attachmentId".
@@ -362,5 +379,7 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
     count: (call) => calls.filter((c) => c.call === call).length,
     // The cursor of every list request so far, null for a first page.
     cursors: () => calls.filter((c) => c.call === 'GET /api/threads').map((c) => c.url.searchParams.get('cursor')),
+    // The query of every search so far.
+    searches: () => calls.filter((c) => c.call === 'GET /api/search').map((c) => Object.fromEntries(c.url.searchParams)),
   };
 }

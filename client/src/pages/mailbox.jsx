@@ -8,6 +8,7 @@ import ReadingPane from '../features/mail/reading-pane.jsx';
 import SearchBox from '../features/mail/search-box.jsx';
 import CommandPalette from '../features/mail/command-palette.jsx';
 import ShortcutHelp from '../features/mail/shortcut-help.jsx';
+import { SCORED_ROW_HEIGHT, ScoreLine, ScoresToggle, SearchNote, spokenScores } from '../features/mail/search-scores.jsx';
 import ComposeWindow from '../features/compose/compose-window.jsx';
 import { quoteMessage, replyRecipients, replySubject } from '../features/compose/reply.js';
 import { FOLDERS, folderName } from '../features/mail/folders.js';
@@ -24,6 +25,7 @@ import {
 import { useSignedInUser } from '../features/auth/guards.jsx';
 import { useLogout } from '../features/auth/session.js';
 import { useShortcuts } from '../lib/shortcuts.js';
+import { useStoredFlag } from '../hooks/use-stored-flag.js';
 import NotFound from './not-found.jsx';
 
 const NOTICE_MS = 4000;
@@ -31,6 +33,13 @@ const NOTICE_MS = 4000;
 const UNDO_MS = 8000;
 const noop = () => {};
 const COMPOSE_NOTICES = { sent: 'Message sent.', saved: 'Draft saved.', discarded: 'Draft discarded.' };
+
+// The score line under each search result.
+const SCORE_DETAIL = {
+  height: SCORED_ROW_HEIGHT,
+  show: (thread) => <ScoreLine found={thread.found} />,
+  say: (thread) => spokenScores(thread.found),
+};
 
 // What an empty folder says, and a hint where there is something useful to add.
 const EMPTY_FOLDERS = {
@@ -87,7 +96,10 @@ export default function Mailbox({ mode }) {
   const threadPath = (id) => `${basePath}/${id}${suffix}`;
 
   const threadList = useThreadList(mode === 'folder' && !notFound ? { folder } : label ? { label: labelId } : null);
-  const search = useSearch(query);
+  // Whether search results show how they were scored. Kept across reloads,
+  // as a setting for whoever is looking into the ranking.
+  const [showScores, setShowScores] = useStoredFlag('sift.searchScores');
+  const search = useSearch(query, { debug: showScores });
   const pagedThreads = useMemo(() => threadList.data?.pages.flatMap((page) => page.threads) ?? [], [threadList.data]);
 
   // Paged lists and search results in one shape, so the list and the keys
@@ -95,7 +107,7 @@ export default function Mailbox({ mode }) {
   const list =
     mode === 'search'
       ? {
-          threads: search.data ?? [],
+          threads: search.data?.threads ?? [],
           isPending: search.isPending,
           isError: search.isError,
           refetch: search.refetch,
@@ -355,6 +367,9 @@ export default function Mailbox({ mode }) {
     ...(notice?.undo ? [{ id: 'undo', title: 'Undo archive', keys: 'z', run: notice.undo }] : []),
     { id: 'select', title: 'Select conversation', keys: 'x', run: selectOpen },
     { id: 'search', title: 'Search mail', keys: '/', run: focusSearch },
+    ...(mode === 'search'
+      ? [{ id: 'scores', title: showScores ? 'Hide search scores' : 'Show search scores', run: () => setShowScores(!showScores) }]
+      : []),
     ...FOLDERS.map((entry) => ({ id: `folder-${entry.id}`, title: `Go to ${entry.name}`, run: () => navigate(`/${entry.id}`) })),
     ...(labels.data ?? []).map((entry) => ({
       id: `label-${entry.id}`,
@@ -394,8 +409,10 @@ export default function Mailbox({ mode }) {
   } else {
     listContent = (
       // Keyed by view, so switching folders starts a fresh list at the top.
+      // Turning scores on or off changes the row height, which the list only
+      // reads when it starts.
       <ThreadList
-        key={listPath}
+        key={`${listPath} ${mode === 'search' && showScores}`}
         title={title}
         emptyText={emptyText}
         emptyHint={emptyHint}
@@ -406,6 +423,11 @@ export default function Mailbox({ mode }) {
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
         onToggleStar={toggleStar}
+        {...(mode === 'search' && {
+          actions: <ScoresToggle on={showScores} onToggle={() => setShowScores(!showScores)} />,
+          note: <SearchNote mode={search.data?.mode} vectorUnavailable={search.data?.vectorUnavailable} showScores={showScores} />,
+          detail: showScores ? SCORE_DETAIL : null,
+        })}
       />
     );
   }
