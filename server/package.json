@@ -14,6 +14,7 @@
     "seed": "node scripts/seed.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:atlas": "vitest run --config vitest.atlas.config.js",
     "eval:search": "node scripts/search-eval.js",
     "eval:embeddings": "node scripts/embedding-eval.js",
     "smtp:check": "node scripts/smtp-check.js",
