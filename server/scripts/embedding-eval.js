@@ -74,7 +74,7 @@ const methods = [];
 // Keyword search, measured again here so every method sees the same mailbox.
 const keywordRanks = [];
 for (const q of SEARCH_QUERIES) {
-  const results = await searchThreads(user._id, q.query, { limit: DEPTH });
+  const { results } = await searchThreads(user._id, q.query, { limit: DEPTH, use: 'keyword' });
   keywordRanks.push(rankOf(results.map((r) => r.thread.subject), q.expect));
 }
 methods.push({ name: 'keyword', ranks: keywordRanks });

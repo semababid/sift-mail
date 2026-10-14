@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import mongoose from 'mongoose';
 import { connectDb } from '../../src/config/db.js';
-import { Message } from '../../src/models/index.js';
+import { Message, Thread } from '../../src/models/index.js';
 import { ensureVectorIndex, vectorSearchMessages } from '../../src/services/vector-search.js';
-import { vectorFor } from '../fake-ai.js';
+import { searchThreads } from '../../src/services/search.service.js';
+import { fakeAi, vectorFor } from '../fake-ai.js';
 
 // Vector search against a real Atlas cluster, in a database of its own that is
 // emptied at the end. Run with: npm run test:atlas --workspace=server
@@ -14,7 +15,8 @@ const MODEL = 'ollama/bge-m3';
 const anna = new mongoose.Types.ObjectId();
 const ben = new mongoose.Types.ObjectId();
 const nobody = new mongoose.Types.ObjectId();
-const question = vectorFor('Wann kommt die Kaution zurück?');
+const QUESTION = 'Wann kommt die Kaution zurück?';
+const question = vectorFor(QUESTION);
 
 // A vector close to `vector` but not the same: the two are mixed, and the result
 // scaled back to length 1.
@@ -70,15 +72,16 @@ beforeAll(async () => {
   await connectDb();
   // Whatever an earlier run that stopped halfway left behind.
   await emptyTestDatabase();
-  await Message.createCollection();
+  // The text index too, for the hybrid search at the end.
+  await Message.syncIndexes();
   await ensureVectorIndex();
 
   await Message.insertMany([
     // Ben's message is exactly the question's vector, so it is the nearest
     // thing in the whole collection. Anna's is close, but less close.
-    message('ben-kaution', ben, question),
+    message('ben-kaution', ben, question, { bodyText: 'Die Kaution kommt zurück.' }),
     message('ben-other', ben, vectorFor('Stromrechnung')),
-    message('anna-kaution', anna, near(question, vectorFor('Wohnung'))),
+    message('anna-kaution', anna, near(question, vectorFor('Wohnung')), { bodyText: 'Die Kaution kommt zurück.' }),
     message('anna-other', anna, vectorFor('Seminar am Montag')),
     // Anna's, but none of these may ever come back.
     message('anna-draft', anna, question, { isDraft: true, folder: 'drafts' }),
@@ -86,6 +89,16 @@ beforeAll(async () => {
     message('anna-spam', anna, question, { folder: 'spam' }),
     message('anna-old-model', anna, question, { embeddingModel: 'ollama/nomic-embed-text' }),
   ]);
+  // A conversation for each message, which hybrid search returns.
+  await Thread.insertMany(
+    (await Message.find({}, { userId: 1, threadId: 1, subject: 1 }).lean()).map((m) => ({
+      _id: m.threadId,
+      userId: m.userId,
+      subject: m.subject,
+      lastMessageAt: new Date(),
+      folders: ['inbox'],
+    })),
+  );
   await untilIndexed(anna, ['anna-kaution', 'anna-other']);
   await untilIndexed(ben, ['ben-kaution', 'ben-other']);
 });
@@ -96,12 +109,12 @@ afterAll(async () => {
 });
 
 describe('vector search on Atlas', () => {
-  it('returns only the searcher’s own mail', async () => {
+  it("returns only the searcher's own mail", async () => {
     expect(names(await search(anna))).toEqual(['anna-kaution', 'anna-other']);
     expect(names(await search(ben))).toEqual(['ben-kaution', 'ben-other']);
   });
 
-  it('filters before it picks the nearest, so another user’s nearer mail does not crowd out the searcher’s', async () => {
+  it("filters before it picks the nearest, so another user's nearer mail does not crowd out the searcher's", async () => {
     // Ben's copy is the single nearest vector. Filtering after the nearest one
     // was picked would leave Anna with nothing.
     const [best] = await search(anna, 1);
@@ -125,5 +138,23 @@ describe('vector search on Atlas', () => {
 
   it('leaves the index alone when it already matches the definition', async () => {
     expect(await ensureVectorIndex()).toMatchObject({ action: 'unchanged', status: 'READY' });
+  });
+});
+
+describe('hybrid search on Atlas', () => {
+  const hybrid = (userId) => searchThreads(userId, QUESTION, { limit: 20, debug: true, ai: fakeAi(MODEL) });
+
+  it("fuses both searches, and still returns only the searcher's own conversations", async () => {
+    const { results, mode } = await hybrid(anna);
+    expect(mode).toBe('hybrid');
+    expect(results.map((r) => r.thread.subject)).toEqual(['anna-kaution', 'anna-other']);
+    // Found by both, where the other was found by meaning alone.
+    expect(results[0].debug).toEqual({ keyword: { rank: 1, score: expect.any(Number) }, vector: { rank: 1, score: expect.any(Number) } });
+    expect(results[1].debug.keyword).toBeNull();
+  });
+
+  it('gives someone else their own conversations in turn', async () => {
+    const { results } = await hybrid(ben);
+    expect(results.map((r) => r.thread.subject)).toEqual(['ben-kaution', 'ben-other']);
   });
 });
