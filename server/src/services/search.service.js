@@ -67,11 +67,15 @@ export function fuseRankings({ keyword, vector }, k = RRF_K) {
 // The vectors of recent questions, so searching the same words again, or
 // paging back to a search, skips the model. Kept in memory and nowhere else:
 // what people search for is not written to the database.
+//
+// Each user has their own entries. Shared ones would answer a question
+// someone else asked recently faster than a new one, and timing a search
+// would tell whether anyone had searched for those words.
 const QUESTION_CACHE_SIZE = 500;
 const questionVectors = new Map();
 
-async function embedQuestion(query, ai) {
-  const key = `${ai.embeddingModel}\n${query}`;
+async function embedQuestion(userId, query, ai) {
+  const key = `${userId}\n${ai.embeddingModel}\n${query}`;
   if (questionVectors.has(key)) {
     const vector = questionVectors.get(key);
     // Moved to the end, so the cache forgets the question asked longest ago.
@@ -96,7 +100,7 @@ let vectorDown = false;
 // Search then works on keywords alone rather than failing.
 async function meaningSearch(userId, query, { ai, vectorSearch }) {
   try {
-    const vector = await embedQuestion(query, ai);
+    const vector = await embedQuestion(userId, query, ai);
     const hits = await vectorSearch(userId, vector, { model: ai.embeddingModel });
     if (vectorDown) log.info('vector search works again');
     vectorDown = false;

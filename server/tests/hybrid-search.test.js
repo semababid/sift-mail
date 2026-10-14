@@ -228,6 +228,12 @@ describe("the question's vector", () => {
     expect(other.calls).toHaveLength(1);
   });
 
+  it('is kept for each user apart, so nobody can time a search to learn what others asked', async () => {
+    await searchThreads(anna, 'Kündigung Wohnung', { limit: 10, ai, vectorSearch: fakeVectorSearch() });
+    await searchThreads(ben, 'Kündigung Wohnung', { limit: 10, ai, vectorSearch: fakeVectorSearch() });
+    expect(ai.calls).toHaveLength(2);
+  });
+
   it('holds 500 questions and forgets the one asked longest ago', async () => {
     const ask = (words) => searchThreads(anna, words, { limit: 1, use: 'vector', ai, vectorSearch: fakeVectorSearch() });
     for (let i = 0; i < 500; i += 1) await ask(`Frage ${i}`);
@@ -245,12 +251,17 @@ describe("the question's vector", () => {
 
   it('is never written to the database', async () => {
     await conversation('Kaution', 'Kaution');
+    const { db } = mongoose.connection;
+    const everything = async () => {
+      const counts = {};
+      for (const { name } of await db.listCollections().toArray()) counts[name] = await db.collection(name).countDocuments();
+      return counts;
+    };
+    const before = await everything();
+
     await searchThreads(anna, 'eine sehr persönliche Frage', { limit: 10, ai, vectorSearch: fakeVectorSearch() });
-    const collections = await mongoose.connection.db.listCollections().toArray();
-    for (const { name } of collections) {
-      const found = await mongoose.connection.db.collection(name).countDocuments({ $or: [{ query: { $exists: true } }, { hash: { $exists: true } }] });
-      expect({ name, found }).toEqual({ name, found: 0 });
-    }
+    expect(ai.calls).toHaveLength(1);
+    expect(await everything()).toEqual(before);
   });
 });
 

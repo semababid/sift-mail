@@ -180,6 +180,39 @@ describe('when the model fails', () => {
     expect(ai.calls).toHaveLength(1);
   });
 
+  it('marks nothing for embedding again when the new model cannot run', async () => {
+    await stored(5);
+    await backfill({ ai: fakeAi('fake/old') });
+    const broken = fakeAi('fake/typo');
+    broken.state.fail = 'model_missing';
+
+    await expect(backfill({ ai: broken })).rejects.toMatchObject({ code: 'model_missing', totals: { remarked: 0 } });
+    // Every message still counts as done, with the vector it had.
+    expect(await missing()).toBe(0);
+    expect(await Message.countDocuments({ embeddingModel: 'fake/old' })).toBe(5);
+  });
+
+  it('asks the model only once before marking, and not at all when nothing needs marking', async () => {
+    await stored(5);
+    await backfill({ ai: fakeAi('fake/old') });
+
+    await backfill();
+    expect(ai.calls.map((call) => call.texts.length)).toEqual([1, 5]);
+    ai.calls.length = 0;
+    await backfill();
+    expect(ai.calls).toEqual([]);
+  });
+
+  it('refuses to run with a provider that has no embedding model', async () => {
+    await stored(5);
+    await backfill({ ai: fakeAi('fake/old') });
+    const hosted = { ...fakeAi(null), name: 'hosted' };
+
+    await expect(backfill({ ai: hosted })).rejects.toMatchObject({ code: 'not_configured' });
+    expect(hosted.calls).toEqual([]);
+    expect(await missing()).toBe(0);
+  });
+
   it('skips a chunk the model answers with something unusable, and carries on', async () => {
     await stored(25);
     ai.state.fail = 'bad_response';

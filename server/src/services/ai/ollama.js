@@ -18,6 +18,15 @@ const baseName = (model) => model.split(':')[0].split('/').pop();
 const EMBED_TIMEOUT_MS = 30_000;
 const GENERATE_TIMEOUT_MS = 180_000;
 
+// An error thrown by the caller's own onText, carried out of the stream so it
+// reaches the caller as it was. Turned into an AiError it would blame Ollama
+// for, say, a browser that closed the connection mid-answer.
+class CallerError {
+  constructor(err) {
+    this.err = err;
+  }
+}
+
 export function createOllamaProvider({
   host,
   embeddingModel,
@@ -31,6 +40,7 @@ export function createOllamaProvider({
   // Which of the two gave up: the caller, or the clock.
   function failure(err, { signal, timeout, timeoutMs }) {
     if (err instanceof AiError) return err;
+    if (err instanceof CallerError) return err.err;
     if (signal?.aborted) return new AiError('aborted', 'the request was cancelled', { cause: err });
     if (timeout.aborted) return new AiError('timeout', `Ollama did not answer within ${timeoutMs / 1000} s`, { cause: err });
     return new AiError('unavailable', `Ollama is not answering at ${host}. Start it with: ollama serve`, { cause: err });
@@ -156,7 +166,11 @@ export function createOllamaProvider({
               const piece = line.message?.content ?? '';
               if (piece) {
                 text += piece;
-                onText?.(piece);
+                try {
+                  onText?.(piece);
+                } catch (err) {
+                  throw new CallerError(err);
+                }
               }
               if (line.done) last = line;
             }

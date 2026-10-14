@@ -45,6 +45,34 @@ All free. None of them need a card.
 
 **A hosted model key**, also stage 10 only, because Ollama will not run on a free deployment tier. This is the one line item that can cost money, and it is small: the whole project only calls a model for classification, summaries and chat answers.
 
+## Switching to Atlas for search
+
+Once the cluster exists, put its connection string in `MONGO_URI`, with the database name in the path (`...mongodb.net/sift?retryWrites=true`). Then build the indexes there, the vector index included. A new vector index takes Atlas about half a minute:
+
+```bash
+npm run indexes --workspace=server
+```
+
+Check that Ollama answers with both models before relying on it:
+
+```bash
+npm run ai:check --workspace=server
+```
+
+The seed writes mail without vectors, and so did everything before stage 5. The backfill gives them one. It can be stopped with Ctrl+C and run again, and it carries on where it stopped. Mail that arrives after this is embedded as it comes in.
+
+```bash
+npm run embed:backfill --workspace=server
+```
+
+Without Ollama, or on the local Mongo, search still works on keywords alone, and the results say so.
+
+The tests for vector search need a real cluster. They read `MONGO_URI_ATLAS` and work in a database of their own, `sift_atlas_test`, which they empty when they finish:
+
+```bash
+npm run test:atlas --workspace=server
+```
+
 ## Worth knowing
 
 16 GB is comfortable but not unlimited. Ollama, Mongo, Redis, Vite and a browser at once will get tight if you also load an 8B model. Keep the chat model at 3B or 4B while developing and save the bigger one for checking output quality.

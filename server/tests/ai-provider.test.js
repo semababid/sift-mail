@@ -324,6 +324,21 @@ describe('when Ollama cannot help', () => {
     expect(await failureOf(pending)).toMatchObject({ code: 'aborted', retryable: false });
     expect(pieces).toEqual(['eins']);
   });
+
+  it('passes on an error from onText as it was, rather than blaming Ollama', async () => {
+    handle = (req, res) => stream(res, [chunk('eins'), chunk('zwei'), done()], { delayMs: 20 });
+    const closed = new Error('the browser went away');
+
+    const err = await failureOf(
+      provider().generate({
+        messages: [{ role: 'user', content: 'x' }],
+        onText: () => {
+          throw closed;
+        },
+      }),
+    );
+    expect(err).toBe(closed);
+  });
 });
 
 describe('the hosted placeholder', () => {

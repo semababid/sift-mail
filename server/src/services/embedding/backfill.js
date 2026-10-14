@@ -1,5 +1,5 @@
 import { Message } from '../../models/index.js';
-import { getAi } from '../ai/index.js';
+import { AiError, getAi } from '../ai/index.js';
 import { embedMessages } from './embed-messages.js';
 
 // Messages read from the database at a time. embedMessages splits each chunk
@@ -19,16 +19,15 @@ const needsVector = (userId) => ({ userId, embeddedAt: null, isDraft: false, bod
 // until the new ones replace them, which means that for a while the database
 // holds vectors from two models: search must only compare a question with
 // vectors from the model that embedded the question.
+const fromOtherModels = ({ model, userIds }) => ({
+  isDraft: false,
+  embeddedAt: { $ne: null },
+  embeddingModel: { $ne: model },
+  ...(userIds ? { userId: { $in: userIds } } : {}),
+});
+
 export async function markOtherModels({ model, userIds }) {
-  const res = await Message.updateMany(
-    {
-      isDraft: false,
-      embeddedAt: { $ne: null },
-      embeddingModel: { $ne: model },
-      ...(userIds ? { userId: { $in: userIds } } : {}),
-    },
-    { $set: { embeddedAt: null } },
-  );
+  const res = await Message.updateMany(fromOtherModels({ model, userIds }), { $set: { embeddedAt: null } });
   return res.modifiedCount;
 }
 
@@ -77,6 +76,19 @@ export async function runBackfill({
   onRetry,
 } = {}) {
   const totals = { embedded: 0, asked: 0, failed: 0, remarked: 0, stopped: null };
+  if (!ai.embeddingModel) throw new AiError('not_configured', `the ${ai.name} provider has no embedding model to backfill with`);
+
+  // Marking undoes every vector from another model at once. If the model
+  // named now cannot run, a typo in EMBEDDING_MODEL for one, the run would
+  // stop straight after, and the whole mailbox would be left to embed again
+  // once the setting was put back. So the model is asked first.
+  if (await Message.exists(fromOtherModels({ model: ai.embeddingModel, userIds }))) {
+    try {
+      await withRetries(() => ai.embed(['Sift'], { purpose: 'document' }), { waits, wait, onRetry });
+    } catch (err) {
+      throw Object.assign(err, { totals });
+    }
+  }
   totals.remarked = await markOtherModels({ model: ai.embeddingModel, userIds });
   const { users, total } = await countNeedingVectors({ userIds });
   totals.total = Math.min(total, limit);
