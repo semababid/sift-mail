@@ -135,8 +135,11 @@ export function createOllamaProvider({
       );
     },
 
-    async generate({ system, messages, format, temperature = 0.2, maxTokens, onText, signal } = {}) {
+    async generate({ system, messages, format, temperature = 0.2, maxTokens, logprobs, onText, signal } = {}) {
       checkGenerateInput({ messages });
+      if (logprobs !== undefined && !(Number.isInteger(logprobs) && logprobs >= 1 && logprobs <= 20)) {
+        throw new TypeError('generate() logprobs must be a whole number from 1 to 20');
+      }
 
       return request(
         '/api/chat',
@@ -151,6 +154,7 @@ export function createOllamaProvider({
           // into 10 s. Nothing in Sift reads the thinking, so it is off.
           think: false,
           format,
+          ...(logprobs ? { logprobs: true, top_logprobs: logprobs } : {}),
           options: { temperature, ...(maxTokens ? { num_predict: maxTokens } : {}) },
         },
         {
@@ -160,6 +164,7 @@ export function createOllamaProvider({
           read: async (res) => {
             let text = '';
             let last = null;
+            const tokens = logprobs ? [] : null;
             for await (const line of lines(res)) {
               // A failure after the answer has started comes as a line of its own.
               if (line.error) throw new AiError('unavailable', `Ollama failed partway: ${line.error}`);
@@ -172,6 +177,15 @@ export function createOllamaProvider({
                   throw new CallerError(err);
                 }
               }
+              if (tokens) {
+                for (const t of line.logprobs ?? []) {
+                  tokens.push({
+                    text: t.token,
+                    logprob: t.logprob,
+                    top: (t.top_logprobs ?? []).map((alt) => ({ text: alt.token, logprob: alt.logprob })),
+                  });
+                }
+              }
               if (line.done) last = line;
             }
             if (!last) throw new AiError('bad_response', 'Ollama stopped before the answer was finished');
@@ -179,6 +193,9 @@ export function createOllamaProvider({
               text,
               doneReason: last.done_reason === 'length' ? 'length' : 'stop',
               usage: { inputTokens: last.prompt_eval_count ?? 0, outputTokens: last.eval_count ?? 0 },
+              // An Ollama too old to know logprobs ignores the request and
+              // sends none, which reads as a provider that cannot give them.
+              tokens: tokens?.length ? tokens : null,
             };
           },
         },

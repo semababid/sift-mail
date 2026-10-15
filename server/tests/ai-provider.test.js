@@ -162,7 +162,7 @@ describe('generate', () => {
       maxTokens: 20,
     });
 
-    expect(answer).toEqual({ text: 'Berlin', doneReason: 'stop', usage: { inputTokens: 12, outputTokens: 3 } });
+    expect(answer).toEqual({ text: 'Berlin', doneReason: 'stop', usage: { inputTokens: 12, outputTokens: 3 }, tokens: null });
     expect(received).toEqual([
       {
         path: '/api/chat',
@@ -178,6 +178,39 @@ describe('generate', () => {
         },
       },
     ]);
+  });
+
+  it('asks for logprobs only when told to, and answers every token with its alternatives', async () => {
+    const withLogprobs = (content, alternatives) => ({
+      ...chunk(content),
+      logprobs: [{ token: content, logprob: alternatives[0][1], bytes: [], top_logprobs: alternatives.map(([token, logprob]) => ({ token, logprob, bytes: [] })) }],
+    });
+    handle = (req, res) =>
+      stream(res, [withLogprobs('read', [['read', -0.1], ['needs', -2.4]]), withLogprobs('_only', [['_only', -0.01]]), done()]);
+
+    const answer = await provider().generate({ messages: [{ role: 'user', content: 'x' }], logprobs: 2 });
+    expect(received[0].body).toMatchObject({ logprobs: true, top_logprobs: 2 });
+    expect(answer.tokens).toEqual([
+      { text: 'read', logprob: -0.1, top: [{ text: 'read', logprob: -0.1 }, { text: 'needs', logprob: -2.4 }] },
+      { text: '_only', logprob: -0.01, top: [{ text: '_only', logprob: -0.01 }] },
+    ]);
+
+    await provider().generate({ messages: [{ role: 'user', content: 'x' }] });
+    expect(received[1].body).not.toHaveProperty('logprobs');
+    expect(received[1].body).not.toHaveProperty('top_logprobs');
+  });
+
+  it('answers tokens: null when Ollama sends no logprobs, as an older version does', async () => {
+    handle = (req, res) => stream(res, [chunk('Ja'), done()]);
+    const answer = await provider().generate({ messages: [{ role: 'user', content: 'x' }], logprobs: 5 });
+    expect(answer).toMatchObject({ text: 'Ja', tokens: null });
+  });
+
+  it('refuses a logprobs count Ollama would not take', async () => {
+    for (const logprobs of [0, 21, 2.5, '5']) {
+      await expect(provider().generate({ messages: [{ role: 'user', content: 'x' }], logprobs })).rejects.toThrow(TypeError);
+    }
+    expect(received).toEqual([]);
   });
 
   it('hands each piece to onText as it arrives', async () => {

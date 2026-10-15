@@ -20,14 +20,22 @@ import { AiError } from './errors.js';
 //   someone searched for. Some models are trained to embed the two
 //   differently, and search is worse if they are mixed up.
 //
-// generate({ system, messages, format, temperature, maxTokens, onText, signal })
-//   -> { text, doneReason, usage: { inputTokens, outputTokens } }
+// generate({ system, messages, format, temperature, maxTokens, logprobs, onText, signal })
+//   -> { text, doneReason, usage: { inputTokens, outputTokens }, tokens }
 //   `messages` is the conversation so far, as { role: "user" | "assistant",
 //   content }. `format` is left out for plain text, "json" for any JSON, or a
 //   JSON schema the answer must follow. `onText` gets each piece of text as it
 //   arrives, for streaming; the promise still resolves with all of it.
 //   `doneReason` is "length" when the answer stopped at maxTokens, which
 //   usually means it was cut off, and "stop" otherwise.
+//   `logprobs`, a number from 1 to 20, asks for `tokens`: every token of the
+//   answer as { text, logprob, top }, where `top` is that many tokens the
+//   model rated most likely at that point, each { text, logprob }. A
+//   provider that cannot give them answers `tokens: null`, so callers must
+//   work without. Without `logprobs`, `tokens` is null too.
+//   With a `format`, the answer is held to it by a grammar that runs after
+//   the model has rated its tokens, so `top` says what the model wanted and
+//   may hold tokens the grammar did not allow.
 //
 // Both reject with an AiError. Both take an AbortSignal to cancel.
 

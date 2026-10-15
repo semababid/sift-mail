@@ -20,3 +20,12 @@ export function makeSnippet(body, length = 140) {
   if (flat.length <= length) return flat;
   return `${flat.slice(0, length).trimEnd()}...`;
 }
+
+// The text of a message without the lines it quotes from earlier mail, which
+// a reply carries under "> ". Those belong to the message they came from.
+export function withoutQuotedLines(text) {
+  return (text ?? '')
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('>'))
+    .join('\n');
+}
