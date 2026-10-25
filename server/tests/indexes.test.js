@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import mongoose from 'mongoose';
+import { needsTriage } from '../src/services/triage/triage-messages.js';
 import { connect, disconnect } from './helpers.js';
 import { Thread, Message, Label } from '../src/models/index.js';
 
@@ -106,6 +107,16 @@ describe.each([
         $or: [{ sentAt: { $lt: new Date() } }, { sentAt: new Date(), _id: { $lt: new mongoose.Types.ObjectId() } }],
       }).sort({ sentAt: -1, _id: -1 }),
     'message_needs_vector',
+  ],
+  [
+    'triage backfill, one chunk further on',
+    () =>
+      Message.find({
+        userId,
+        ...needsTriage(),
+        $or: [{ sentAt: { $lt: new Date() } }, { sentAt: new Date(), _id: { $lt: new mongoose.Types.ObjectId() } }],
+      }).sort({ sentAt: -1, _id: -1 }),
+    'message_needs_triage',
   ],
 ])('%s', (_name, build, expectedIndex) => {
   it(`uses ${expectedIndex} and never sorts in memory`, async () => {

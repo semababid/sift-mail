@@ -10,6 +10,7 @@ import { logger } from '../config/logger.js';
 import { isOutboundConfigured, outboundFrom, sendOutbound } from './outbound.js';
 import { attachmentsForSending, copyAttachments, removeAttachmentFiles } from './attachment.service.js';
 import { embedLater } from './embedding/queue.js';
+import { triageLater } from './triage/queue.js';
 
 // Internal mail never leaves the server yet, so it gets an RFC Message-ID of
 // its own making. Having one now means replies thread through the same
@@ -233,6 +234,9 @@ export async function sendMessage(sender, input, { draft } = {}) {
 
   // Every copy carries the same text, so the model is asked for it once.
   embedLater(delivered);
+  // Each recipient's copy gets a bucket of its own, since what a message asks
+  // depends on who it is for. The sent copy is left out by the triage itself.
+  triageLater(delivered);
   return { message, thread: senderThread };
 }
 

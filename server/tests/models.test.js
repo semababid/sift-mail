@@ -48,6 +48,8 @@ describe('Message', () => {
     expect(message.toObject().intent).toEqual({
       label: null,
       confidence: null,
+      reason: null,
+      model: null,
       source: 'default',
       classifiedAt: null,
     });

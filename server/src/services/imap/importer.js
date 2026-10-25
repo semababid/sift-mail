@@ -7,6 +7,7 @@ import { makeSnippet, normalizeSubject } from '../../lib/text.js';
 import { logger } from '../../config/logger.js';
 import { storeAttachments } from '../attachment.service.js';
 import { embedLater } from '../embedding/queue.js';
+import { triageLater } from '../triage/queue.js';
 
 const log = logger.child({ worker: 'imap-import' });
 
@@ -216,9 +217,11 @@ export async function fetchPendingBodies({ user, client, account, mailbox = 'INB
 
     await message.save();
     await refreshThread(message.threadId);
-    // Embedded once its text is final. One whose body could not be fetched is
-    // embedded from its subject, which is better than no vector at all.
+    // Embedded and sorted into a bucket once its text is final. One whose body
+    // could not be fetched is done from its subject, which is better than
+    // nothing at all.
     embedLater([message._id]);
+    triageLater([message._id]);
     if (message.bodyStatus === 'complete') done += 1;
   }
   return done;

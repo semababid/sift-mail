@@ -6,6 +6,7 @@ import { User } from '../src/models/index.js';
 import { connectImap } from '../src/services/imap/client.js';
 import { fetchPendingBodies, importNewMail } from '../src/services/imap/importer.js';
 import { flushEmbeddings } from '../src/services/embedding/queue.js';
+import { stopTriage } from '../src/services/triage/queue.js';
 
 // Keeps one IMAP inbox in step with a Sift account. It imports what is new,
 // then fills in message bodies, then waits: the server announces new mail
@@ -88,8 +89,9 @@ async function stop(signal) {
   stopping = true;
   log.info({ signal }, 'stopping');
   await client?.close();
-  // Embeds what the last pass imported before the database goes away.
-  await flushEmbeddings();
+  // Embeds what the last pass imported before the database goes away. Triage
+  // is too slow to wait for, and is left to its backfill.
+  await Promise.all([flushEmbeddings(), stopTriage()]);
   await disconnectDb();
   process.exit(0);
 }

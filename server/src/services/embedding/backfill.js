@@ -1,5 +1,6 @@
 import { Message } from '../../models/index.js';
 import { AiError, getAi } from '../ai/index.js';
+import { sleep, withRetries } from '../../lib/retry.js';
 import { embedMessages } from './embed-messages.js';
 
 // Messages read from the database at a time. embedMessages splits each chunk
@@ -7,8 +8,6 @@ import { embedMessages } from './embed-messages.js';
 export const CHUNK = 256;
 // Waits before trying the model again, after it was unreachable.
 export const RETRY_WAITS_MS = [2_000, 4_000, 8_000];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // What needs a vector: sent and received mail without one, leaving out drafts
 // and imported mail still waiting for its text.
@@ -37,18 +36,6 @@ export async function countNeedingVectors({ userIds } = {}) {
   let total = 0;
   for (const userId of users) total += await Message.countDocuments(needsVector(userId));
   return { users, total };
-}
-
-async function withRetries(work, { waits, wait, onRetry }) {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await work();
-    } catch (err) {
-      if (!err.retryable || attempt >= waits.length) throw err;
-      onRetry?.(err, waits[attempt]);
-      await wait(waits[attempt]);
-    }
-  }
 }
 
 // Embeds every message that needs a vector, user by user, newest first, a

@@ -67,6 +67,12 @@ npm run embed:backfill --workspace=server
 
 Without Ollama, or on the local Mongo, search still works on keywords alone, and the results say so.
 
+Received mail is also sorted into triage buckets by the chat model, as it arrives. Mail from before that, the seed included, needs the triage backfill. It is slower than the embedding one, a few seconds a message, so the seeded mailbox takes over an hour. It stops and resumes the same way, and `--limit 50` does a first slice:
+
+```bash
+npm run triage:backfill --workspace=server
+```
+
 The tests for vector search need a real cluster. They read `MONGO_URI_ATLAS` and work in a database of their own, `sift_atlas_test`, which they empty when they finish:
 
 ```bash

@@ -20,7 +20,8 @@
     "smtp:check": "node scripts/smtp-check.js",
     "sync": "node scripts/imap-sync.js",
     "ai:check": "node scripts/ai-check.js",
-    "embed:backfill": "node scripts/embed-backfill.js"
+    "embed:backfill": "node scripts/embed-backfill.js",
+    "triage:backfill": "node scripts/triage-backfill.js"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.0",

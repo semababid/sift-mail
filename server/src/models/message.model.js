@@ -107,10 +107,17 @@ const messageSchema = new mongoose.Schema(
     embeddingModel: { type: String, default: null },
     embeddedAt: { type: Date, default: null },
 
-    // Stage 6.
+    // Stage 6. The triage bucket of received mail. `source` says who set it:
+    // the model, or the user moving the message, whose choice the model never
+    // overwrites. `confidence` is the model's probability for the bucket, and
+    // `reason` its few words on why; both stay null when the user set it.
+    // `classifiedAt` stays null until the model has looked, which is how the
+    // backfill finds what it has not.
     intent: {
       label: { type: String, enum: INTENTS, default: null },
       confidence: { type: Number, default: null },
+      reason: { type: String, default: null },
+      model: { type: String, default: null },
       source: { type: String, enum: INTENT_SOURCES, default: 'default' },
       classifiedAt: { type: Date, default: null },
     },
@@ -182,6 +189,13 @@ messageSchema.index(
 messageSchema.index(
   { userId: 1, sentAt: -1, _id: -1 },
   { partialFilterExpression: { embeddedAt: null }, name: 'message_needs_vector' },
+);
+
+// Stage 6 triage backfill, as the one for vectors: only the messages the
+// model has not looked at, in the order the backfill walks them.
+messageSchema.index(
+  { userId: 1, sentAt: -1, _id: -1 },
+  { partialFilterExpression: { 'intent.classifiedAt': null }, name: 'message_needs_triage' },
 );
 
 // Stage 6 bucket tabs.
