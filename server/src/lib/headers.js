@@ -35,3 +35,23 @@ export function referenceChain({ inReplyTo, references } = {}) {
   if (parent && !chain.includes(parent)) chain.push(parent);
   return { inReplyTo: parent, references: chain.slice(-MAX_REFERENCES) };
 }
+
+// Precedence values that mark mail sent to many people at once.
+const BULK_PRECEDENCE = ['bulk', 'list', 'junk'];
+
+// Whether a message came from a mailing list, read from the headers that mail
+// sent to many people carries: List-Id, List-Unsubscribe, or Precedence: bulk.
+// `headers` is the header map mailparser gives, which keeps the List-*
+// headers together under "list". Answers { bulk, listName }. The name is the
+// one the List-Id gives, or its id when it gives none, which mailparser fills
+// in itself.
+export function mailingListOf(headers) {
+  const list = headers?.get('list');
+  const precedence = String(headers?.get('precedence') ?? '')
+    .trim()
+    .toLowerCase();
+  const bulk = Boolean(list?.id || list?.unsubscribe || BULK_PRECEDENCE.includes(precedence));
+  const name = list?.id?.name || null;
+  return { bulk, listName: name ? String(name).slice(0, 120) : null };
+}
+

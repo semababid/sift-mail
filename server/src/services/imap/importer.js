@@ -2,7 +2,7 @@ import { simpleParser } from 'mailparser';
 import { Message, MailboxSync, Thread } from '../../models/index.js';
 import { refreshThread } from '../thread-summary.js';
 import { findThreadFor } from '../threading.js';
-import { parseMessageIds, referenceChain } from '../../lib/headers.js';
+import { mailingListOf, parseMessageIds, referenceChain } from '../../lib/headers.js';
 import { makeSnippet, normalizeSubject } from '../../lib/text.js';
 import { logger } from '../../config/logger.js';
 import { storeAttachments } from '../attachment.service.js';
@@ -212,6 +212,7 @@ export async function fetchPendingBodies({ user, client, account, mailbox = 'INB
       message.bodyHtml = typeof parsed.html === 'string' ? parsed.html.slice(0, MAX_BODY_CHARS) : '';
       message.snippet = makeSnippet(text);
       message.attachments = await storeAttachments(message, parsed.attachments);
+      Object.assign(message, mailingListOf(parsed.headers));
       message.bodyStatus = 'complete';
     }
 
@@ -226,3 +227,52 @@ export async function fetchPendingBodies({ user, client, account, mailbox = 'INB
   }
   return done;
 }
+
+// The headers of a message, without its body: everything before the first
+// blank line.
+function headerBlock(raw) {
+  const text = raw.toString('utf8');
+  const end = text.search(/\r?\n\r?\n/);
+  return end === -1 ? text : text.slice(0, end);
+}
+
+// Pass three, for mail imported before Sift read the mailing list headers:
+// reads them for up to `limit` such messages, from the headers alone. A message that turns out to come from a list and was already sorted
+// by the model is sorted again, since the model did not know. Answers how
+// many it read.
+//
+// A message the server no longer has is marked as not from a list, so it is
+// not asked about on every run.
+export const listsUnread = ({ userId, account, mailbox, uidValidity }) => ({
+  userId,
+  bulk: null,
+  bodyStatus: 'complete',
+  'imap.account': account,
+  'imap.mailbox': mailbox,
+  'imap.uidValidity': uidValidity,
+  // Lets the index on imported mail serve this, which it only does for
+  // queries that say they want imported mail.
+  'imap.uid': { $type: 'number' },
+});
+
+export async function readMailingLists({ user, client, account, mailbox = 'INBOX', uidValidity, limit = 20 }) {
+  const unread = await Message.find(listsUnread({ userId: user._id, account, mailbox, uidValidity }))
+    .limit(limit)
+    .select('imap');
+
+  for (const message of unread) {
+    const raw = await client.source(message.imap.uid);
+    const list = raw ? mailingListOf((await simpleParser(headerBlock(raw))).headers) : { bulk: false, listName: null };
+    await Message.updateOne({ _id: message._id }, { $set: list });
+    if (!list.bulk) continue;
+    // Only the model's bucket is undone. One the user chose stands, even if
+    // they chose it a moment ago.
+    const { modifiedCount } = await Message.updateOne(
+      { _id: message._id, 'intent.source': 'model' },
+      { $set: { 'intent.classifiedAt': null } },
+    );
+    if (modifiedCount) triageLater([message._id]);
+  }
+  return unread.length;
+}
+

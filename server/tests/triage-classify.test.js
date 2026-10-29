@@ -68,6 +68,16 @@ describe('what the model is given', () => {
     );
   });
 
+  it('puts a short mark where a link was, keeping the words around it', () => {
+    const email = triageEmail({
+      from: mara,
+      to: [me],
+      subject: 'Angebot',
+      bodyText: 'Hier ( https://shop.example/t?id=1&utm_source=mail ) klicken, oder https://shop.example/a, und <https://shop.example/b>.',
+    });
+    expect(email).toContain('Hier (link) klicken, oder (link), und <(link)>.');
+  });
+
   it('cuts a long body, and says when there is no subject', () => {
     const email = triageEmail({ from: mara, to: [me], subject: '', bodyText: 'ü'.repeat(TRIAGE_BODY_CHARS + 500) });
     expect(email).toContain('Subject: (no subject)');

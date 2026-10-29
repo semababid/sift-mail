@@ -46,7 +46,9 @@ function body({ text, html, attachments = [] }) {
   return main;
 }
 
-export function mime({ from, to, subject, messageId, inReplyTo, references, date, ...content }) {
+// `extraHeaders` are further header lines as they are written, such as a
+// List-Id.
+export function mime({ from, to, subject, messageId, inReplyTo, references, date, extraHeaders = [], ...content }) {
   const headers = [
     `From: ${from.name} <${from.address}>`,
     `To: ${to.map((person) => person.address).join(', ')}`,
@@ -55,6 +57,7 @@ export function mime({ from, to, subject, messageId, inReplyTo, references, date
     messageId && `Message-ID: ${messageId}`,
     inReplyTo && `In-Reply-To: ${inReplyTo}`,
     references && `References: ${references}`,
+    ...extraHeaders,
     'MIME-Version: 1.0',
   ].filter(Boolean);
   return Buffer.from([...headers, ...body(content), ''].join('\r\n'));

@@ -107,6 +107,14 @@ const messageSchema = new mongoose.Schema(
     embeddingModel: { type: String, default: null },
     embeddedAt: { type: Date, default: null },
 
+    // Stage 6. Whether the message was sent to a mailing list, as its List-Id,
+    // List-Unsubscribe or Precedence header says, and the list's name when it
+    // gives one. Triage reads it: a newsletter that invites a reply is still a
+    // newsletter. Null where nobody has looked, which is mail written in Sift,
+    // seeded mail, and mail imported before Sift read these headers.
+    bulk: { type: Boolean, default: null },
+    listName: { type: String, default: null },
+
     // Stage 6. The triage bucket of received mail. `source` says who set it:
     // the model, or the user moving the message, whose choice the model never
     // overwrites. `confidence` is the model's probability for the bucket, and

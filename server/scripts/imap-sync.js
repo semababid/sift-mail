@@ -4,7 +4,7 @@ import { logger } from '../src/config/logger.js';
 import { connectDb, disconnectDb } from '../src/config/db.js';
 import { User } from '../src/models/index.js';
 import { connectImap } from '../src/services/imap/client.js';
-import { fetchPendingBodies, importNewMail } from '../src/services/imap/importer.js';
+import { fetchPendingBodies, importNewMail, readMailingLists } from '../src/services/imap/importer.js';
 import { flushEmbeddings } from '../src/services/embedding/queue.js';
 import { stopTriage } from '../src/services/triage/queue.js';
 
@@ -54,6 +54,16 @@ async function syncOnce() {
     filled += done;
   }
   if (filled > 0) log.info({ bodies: filled }, 'fetched message bodies');
+
+  // Only mail imported before Sift read the mailing list headers needs this,
+  // and once it is done the query finds nothing.
+  let read = 0;
+  for (;;) {
+    const done = await readMailingLists({ user: owner, client, account, mailbox: MAILBOX, uidValidity });
+    if (done === 0) break;
+    read += done;
+  }
+  if (read > 0) log.info({ messages: read }, 'read mailing list headers of older mail');
 }
 
 // Runs a sync, or marks that another is wanted when one is already running,

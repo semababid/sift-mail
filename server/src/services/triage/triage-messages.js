@@ -31,7 +31,7 @@ export const needsTriage = () => ({
 // the message in hand.
 export async function triageMessages(ids, { ai = getAi(), signal } = {}) {
   const messages = await Message.find({ _id: { $in: ids }, ...needsTriage() })
-    .select('userId from to cc subject bodyText')
+    .select('userId from to cc subject bodyText bulk listName')
     // Newest first, so a backfill that stops partway has done the mail
     // someone is most likely to look at.
     .sort({ sentAt: -1, _id: -1 })

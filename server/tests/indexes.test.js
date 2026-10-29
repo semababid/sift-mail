@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import mongoose from 'mongoose';
 import { needsTriage } from '../src/services/triage/triage-messages.js';
+import { listsUnread } from '../src/services/imap/importer.js';
 import { connect, disconnect } from './helpers.js';
 import { Thread, Message, Label } from '../src/models/index.js';
 
@@ -95,6 +96,11 @@ describe.each([
         sentAt: -1,
       }),
     'message_body_pending',
+  ],
+  [
+    'imported mail whose mailing list headers were never read',
+    () => Message.find(listsUnread({ userId, account: 'a@b.example', mailbox: 'INBOX', uidValidity: '7' })),
+    'message_imap_source',
   ],
   [
     'embedding backfill, one chunk further on',
