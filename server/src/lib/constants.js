@@ -6,6 +6,11 @@ export const INTENTS = ['needs_reply', 'waiting_on_them', 'do_at_a_time', 'read_
 
 export const INTENT_SOURCES = ['model', 'user', 'default'];
 
+// Where received mail is: the inbox, or the archive, where only the inbox
+// moves to. Only received mail gets a bucket, since a bucket says what a
+// message asks of the person it came to, and their own mail asks them nothing.
+export const TRIAGE_FOLDERS = ['inbox', 'archive'];
+
 // The size of a bge-m3 vector. Changing the embedding model means changing
 // this and rebuilding the Atlas index, so it lives in one place.
 //

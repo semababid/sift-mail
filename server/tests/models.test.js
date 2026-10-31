@@ -47,6 +47,7 @@ describe('Message', () => {
     expect(message.from.address).toBe('ll@example.com');
     expect(message.toObject().intent).toEqual({
       label: null,
+      modelLabel: null,
       confidence: null,
       reason: null,
       model: null,

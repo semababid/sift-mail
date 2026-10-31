@@ -73,7 +73,11 @@ const HIDDEN_FROM_LABELS = ['trash', 'spam'];
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const swapFolder = (folders, from, to) => [...new Set(folders.map((f) => (f === from ? to : f)))];
 
+// Each action as the server applies it. `body` is the request, for the bucket
+// setBucket names. A fixture's `modelBucket` is what resetBucket goes back to.
 const THREAD_ACTIONS = {
+  setBucket: (t, body) => ({ ...t, bucket: body.bucket, bucketSource: 'user', modelBucket: t.modelBucket ?? (t.bucketSource === 'model' ? t.bucket : null) }),
+  resetBucket: (t) => (t.bucketSource === 'user' ? { ...t, bucket: t.modelBucket ?? null, bucketSource: t.modelBucket ? 'model' : null } : t),
   markRead: (t) => ({ ...t, hasUnread: false }),
   star: (t) => ({ ...t, isStarred: true }),
   unstar: (t) => ({ ...t, isStarred: false }),
@@ -157,6 +161,7 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
 
       const matching = state.threads
         .filter((thread) => inView(thread, params.get('folder'), params.get('label')))
+        .filter((thread) => !params.get('bucket') || thread.bucket === params.get('bucket'))
         .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt));
       const start = cursor ? Number(cursor) : 0;
       const end = start + pageSize;
@@ -165,6 +170,16 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
       if (state.listDelay) await delay(state.listDelay);
       if (status) return failure(status);
       return HttpResponse.json(page);
+    }),
+
+    http.get('/api/threads/buckets', ({ request }) => {
+      record(request);
+      const folder = new URL(request.url).searchParams.get('folder') ?? 'inbox';
+      const inFolder = state.threads.filter((t) => t.folders.includes(folder));
+      const count = (bucket) => inFolder.filter((t) => t.bucket === bucket).length;
+      return HttpResponse.json({
+        buckets: { needs_reply: count('needs_reply'), waiting_on_them: count('waiting_on_them'), do_at_a_time: count('do_at_a_time'), read_only: count('read_only') },
+      });
     }),
 
     http.get('/api/threads/:id', ({ request, params }) => {
@@ -187,7 +202,7 @@ export function fakeMailApi({ threads = [], messages = {}, labels = [], drafts =
 
       const change = THREAD_ACTIONS[body.action];
       if (!change) return failure(400);
-      state.threads = state.threads.map((t) => (body.ids.includes(t.id) ? change(t) : t));
+      state.threads = state.threads.map((t) => (body.ids.includes(t.id) ? change(t, body) : t));
       return HttpResponse.json({ threads: state.threads.filter((t) => body.ids.includes(t.id)) });
     }),
 

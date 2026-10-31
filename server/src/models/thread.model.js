@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import { toJSON } from './plugins.js';
-import { FOLDERS } from '../lib/constants.js';
+import { FOLDERS, INTENTS } from '../lib/constants.js';
 
 const addressSchema = new mongoose.Schema(
   { name: String, address: { type: String, required: true, lowercase: true, trim: true } },
@@ -34,6 +34,12 @@ const threadSchema = new mongoose.Schema(
     hasUnread: { type: Boolean, default: true },
     isStarred: { type: Boolean, default: false },
     labelIds: { type: [mongoose.Schema.Types.ObjectId], ref: 'Label', default: [] },
+
+    // Stage 6. The conversation's triage bucket and who chose it, the model or
+    // the user, worked out by refreshThread from its messages. Null until one
+    // of its received messages has a bucket.
+    bucket: { type: String, enum: INTENTS, default: null },
+    bucketSource: { type: String, enum: ['model', 'user'], default: null },
   },
   { timestamps: true },
 );
@@ -48,6 +54,9 @@ threadSchema.index({ userId: 1, folders: 1, lastMessageAt: -1, _id: -1 });
 
 // Same list filtered to one label.
 threadSchema.index({ userId: 1, labelIds: 1, lastMessageAt: -1, _id: -1 });
+
+// A bucket tab: one folder, one bucket, newest first.
+threadSchema.index({ userId: 1, folders: 1, bucket: 1, lastMessageAt: -1, _id: -1 });
 
 // The subject fallback above, used when grouping an incoming message.
 threadSchema.index({ userId: 1, normalizedSubject: 1, lastMessageAt: -1 });

@@ -115,14 +115,17 @@ const messageSchema = new mongoose.Schema(
     bulk: { type: Boolean, default: null },
     listName: { type: String, default: null },
 
-    // Stage 6. The triage bucket of received mail. `source` says who set it:
-    // the model, or the user moving the message, whose choice the model never
-    // overwrites. `confidence` is the model's probability for the bucket, and
-    // `reason` its few words on why; both stay null when the user set it.
+    // Stage 6. The triage bucket of received mail. `label` is the bucket it is
+    // in and `source` says who put it there: the model, or the user moving the
+    // message, whose choice the model never overwrites. `modelLabel` is what
+    // the model said, kept when the user moves the message, so the move can be
+    // undone and the correction learnt from. `confidence` is the model's
+    // probability for its bucket and `reason` its few words on why.
     // `classifiedAt` stays null until the model has looked, which is how the
     // backfill finds what it has not.
     intent: {
       label: { type: String, enum: INTENTS, default: null },
+      modelLabel: { type: String, enum: INTENTS, default: null },
       confidence: { type: Number, default: null },
       reason: { type: String, default: null },
       model: { type: String, default: null },

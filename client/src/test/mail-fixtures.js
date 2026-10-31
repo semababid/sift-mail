@@ -18,6 +18,8 @@ export function makeThread(overrides = {}) {
     hasUnread: false,
     isStarred: false,
     labelIds: [],
+    bucket: null,
+    bucketSource: null,
     ...overrides,
   };
 }

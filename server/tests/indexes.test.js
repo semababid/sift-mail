@@ -115,6 +115,17 @@ describe.each([
     'message_needs_vector',
   ],
   [
+    'one bucket of the inbox, one page further on',
+    () =>
+      Thread.find({
+        userId,
+        folders: 'inbox',
+        bucket: 'needs_reply',
+        $or: [{ lastMessageAt: { $lt: new Date() } }, { lastMessageAt: new Date(), _id: { $lt: new mongoose.Types.ObjectId() } }],
+      }).sort({ lastMessageAt: -1, _id: -1 }),
+    'userId_1_folders_1_bucket_1_lastMessageAt_-1__id_-1',
+  ],
+  [
     'triage backfill, one chunk further on',
     () =>
       Message.find({

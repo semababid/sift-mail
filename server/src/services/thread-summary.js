@@ -1,5 +1,6 @@
 import { Thread, Message } from '../models/index.js';
 import { normalizeSubject } from '../lib/text.js';
+import { TRIAGE_FOLDERS } from '../lib/constants.js';
 
 // Rebuilds a thread's stored summary from the messages under it.
 //
@@ -13,9 +14,28 @@ import { normalizeSubject } from '../lib/text.js';
 // nothing else is in the thread. Starting a reply should not push a
 // conversation to the top of the inbox or replace its preview with a
 // half-written sentence.
+//
+// The bucket is that of the newest received message with one: what the
+// conversation asks of its owner now. One rule changes the model's verdict:
+// a conversation the model said needs a reply, which its owner has since
+// answered, is waiting on the other side. A bucket the user chose stands as
+// they chose it.
+function bucketOf(real) {
+  const received = real.filter((m) => TRIAGE_FOLDERS.includes(m.folder) && m.intent?.label);
+  const newest = received.at(-1);
+  if (!newest) return { bucket: null, bucketSource: null };
+
+  const source = newest.intent.source === 'user' ? 'user' : 'model';
+  const answered = real.some((m) => m.folder === 'sent' && m.sentAt > newest.sentAt);
+  if (source === 'model' && newest.intent.label === 'needs_reply' && answered) {
+    return { bucket: 'waiting_on_them', bucketSource: 'model' };
+  }
+  return { bucket: newest.intent.label, bucketSource: source };
+}
+
 export async function refreshThread(threadId) {
   const messages = await Message.find({ threadId })
-    .select('from to cc subject snippet folder isRead isStarred isDraft sentAt')
+    .select('from to cc subject snippet folder isRead isStarred isDraft sentAt intent')
     .sort({ sentAt: 1, _id: 1 })
     .lean();
 
@@ -56,6 +76,7 @@ export async function refreshThread(threadId) {
       hasUnread: messages.some((m) => !m.isRead),
       isStarred: messages.some((m) => m.isStarred),
       participants: [...participants.values()],
+      ...bucketOf(real),
     },
     { new: true },
   );

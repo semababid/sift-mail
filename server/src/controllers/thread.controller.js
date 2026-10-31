@@ -1,10 +1,10 @@
 import * as threadService from '../services/thread.service.js';
 
 export async function list(req, res) {
-  const { folder, label, cursor } = req.valid.query;
+  const { folder, label, bucket, cursor } = req.valid.query;
   const limit = req.valid.query.limit ?? req.user.settings.messagesPerPage;
 
-  const { threads, nextCursor } = await threadService.listThreads(req.userId, { folder, label, limit, cursor });
+  const { threads, nextCursor } = await threadService.listThreads(req.userId, { folder, label, bucket, limit, cursor });
   res.json({ threads: threads.map((t) => t.toJSON()), nextCursor });
 }
 
@@ -19,7 +19,11 @@ export async function show(req, res) {
 // Answers with the updated threads so the client can reconcile its optimistic
 // update. Ids that are not the user's are left out, never reported as errors.
 export async function batch(req, res) {
-  const { ids, action, labelId } = req.valid.body;
-  const threads = await threadService.applyThreadAction(req.userId, ids, action, { labelId });
+  const { ids, action, labelId, bucket } = req.valid.body;
+  const threads = await threadService.applyThreadAction(req.userId, ids, action, { labelId, bucket });
   res.json({ threads: threads.map((t) => t.toJSON()) });
+}
+
+export async function buckets(req, res) {
+  res.json({ buckets: await threadService.countBuckets(req.userId, req.valid.query) });
 }

@@ -1,19 +1,15 @@
 import { Message, User } from '../../models/index.js';
+import { TRIAGE_FOLDERS } from '../../lib/constants.js';
+import { refreshThread } from '../thread-summary.js';
 import { logger } from '../../config/logger.js';
 import { getAi } from '../ai/index.js';
 import { classifyMessage } from './classify.js';
 
 const log = logger.child({ worker: 'triage' });
 
-// Received mail is what gets a bucket: the bucket says what a message asks of
-// the person it came to, and their own mail asks them nothing. Received mail
-// is in the inbox, or in the archive, where only the inbox moves to. Drafts,
-// sent mail, spam and trash are left alone, and so is imported mail whose text
-// has not arrived.
-export const TRIAGE_FOLDERS = ['inbox', 'archive'];
-
-// What the model has not looked at yet. A bucket the user chose is never
-// looked at again.
+// What the model has not looked at yet: received mail, in TRIAGE_FOLDERS, with
+// its text. Drafts, sent mail, spam and trash are left alone. A bucket the
+// user chose is never looked at again.
 export const needsTriage = () => ({
   bodyStatus: { $ne: 'pending' },
   folder: { $in: TRIAGE_FOLDERS },
@@ -31,7 +27,7 @@ export const needsTriage = () => ({
 // the message in hand.
 export async function triageMessages(ids, { ai = getAi(), signal } = {}) {
   const messages = await Message.find({ _id: { $in: ids }, ...needsTriage() })
-    .select('userId from to cc subject bodyText bulk listName')
+    .select('userId threadId from to cc subject bodyText bulk listName')
     // Newest first, so a backfill that stops partway has done the mail
     // someone is most likely to look at.
     .sort({ sentAt: -1, _id: -1 })
@@ -68,6 +64,7 @@ export async function triageMessages(ids, { ai = getAi(), signal } = {}) {
         $set: {
           intent: {
             label: result.label,
+            modelLabel: result.label,
             confidence: result.confidence,
             reason: result.reason,
             model: result.model,
@@ -78,6 +75,8 @@ export async function triageMessages(ids, { ai = getAi(), signal } = {}) {
       },
     );
     classified += modifiedCount;
+    // The conversation's bucket comes from its messages'.
+    if (modifiedCount) await refreshThread(message.threadId);
   }
   return { classified, failedIds };
 }

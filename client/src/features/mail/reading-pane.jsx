@@ -6,6 +6,7 @@ import StarButton from '../../components/star-button.jsx';
 import { messageDate, personName } from '../../lib/format.js';
 import { replyRecipients } from '../compose/reply.js';
 import Attachments from './attachments.jsx';
+import { BucketNote } from './buckets.jsx';
 import { useMarkRead, useThread } from './queries.js';
 
 // `onReply(message, { all })`, `onContinueDraft(draft)` and `onToggleStar(thread)`
@@ -94,6 +95,7 @@ function Conversation({ threadId, closeTo, onReply, onContinueDraft, onToggleSta
             className="text-xl"
           />
         </div>
+        <BucketNote thread={thread} messages={conversation.data.messages} />
       </header>
       <ol className="space-y-4 px-8 py-6">
         {conversation.data.messages.map((message) => (

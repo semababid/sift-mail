@@ -2,8 +2,10 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from '../../lib/api-client.js';
 
 export const labelsKey = ['labels'];
+export const bucketCountsKey = (folder) => ['buckets', folder];
 export const threadKey = (id) => ['thread', id];
-// `filter` is { folder } or { label }, the same filter the list endpoint takes.
+// `filter` is { folder } or { label }, with a `bucket` in the inbox, the same
+// filter the list endpoint takes.
 export const threadListKey = (filter) => ['threads', filter];
 export const searchKey = (query, debug = false) => ['search', query, debug];
 
@@ -65,6 +67,15 @@ export function useThread(id) {
   });
 }
 
+// How many conversations each bucket of a folder holds, for its tabs.
+export function useBucketCounts(folder, { enabled = true } = {}) {
+  return useQuery({
+    queryKey: bucketCountsKey(folder),
+    queryFn: async () => (await api.get('/api/threads/buckets', { params: { folder } })).data.buckets,
+    enabled,
+  });
+}
+
 export function useLabels() {
   return useQuery({
     queryKey: labelsKey,
@@ -74,8 +85,10 @@ export function useLabels() {
 
 // Whether a thread still belongs in a cached list after it changed. Only a
 // folder view loses rows this way, as when archiving takes a conversation out
-// of the inbox. Label views and search results keep it wherever it went.
-const stillIn = (filter, thread) => !filter?.folder || thread.folders.includes(filter.folder);
+// of the inbox, or moving it takes it out of a bucket tab. Label views and
+// search results keep it wherever it went.
+const stillIn = (filter, thread) =>
+  (!filter?.folder || thread.folders.includes(filter.folder)) && (!filter?.bucket || thread.bucket === filter.bucket);
 
 // Runs `change` over every cached copy of every thread: each list, each search
 // and each open conversation. A folder list drops a thread that has left its
@@ -186,6 +199,9 @@ const swapFolder = (folders, from, to) => [...new Set(folders.map((folder) => (f
 // the thread it sends back says what that came to.
 const LOCAL_CHANGE = {
   markRead: (thread) => ({ ...thread, hasUnread: false }),
+  setBucket: (thread, { bucket }) => ({ ...thread, bucket, bucketSource: 'user' }),
+  // What the model said is only on the server, so this waits for its answer.
+  resetBucket: (thread) => thread,
   star: (thread) => ({ ...thread, isStarred: true }),
   unstar: (thread) => ({ ...thread, isStarred: false }),
   archive: (thread) => ({ ...thread, folders: swapFolder(thread.folders, 'inbox', 'archive') }),
@@ -194,6 +210,8 @@ const LOCAL_CHANGE = {
 
 function refreshAfter(queryClient, action) {
   if (action === 'star' || action === 'unstar') return;
+  // Archiving and moving both change how many conversations a bucket holds.
+  if (action !== 'markRead') queryClient.invalidateQueries({ queryKey: ['buckets'] });
   // Unread counts on labels are worked out by the server.
   queryClient.invalidateQueries({ queryKey: labelsKey });
   if (action === 'markRead') return;
@@ -207,14 +225,15 @@ function refreshAfter(queryClient, action) {
 
 // A thread action that shows on screen before the server answers. Called with
 // { ids }, and for an undo also { previous }, a capture from before the action
-// being undone, which is put back first.
+// being undone, which is put back first. Anything else given, as the `bucket`
+// of setBucket, goes to the server with the ids.
 //
 // If the server refuses, only these threads return to how they were.
 export function useThreadAction(action, { onError } = {}) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ ids }) => (await api.post('/api/threads/batch', { ids, action })).data.threads,
-    onMutate: async ({ ids, previous }) => {
+    mutationFn: async ({ ids, previous, ...rest }) => (await api.post('/api/threads/batch', { ids, action, ...rest })).data.threads,
+    onMutate: async ({ ids, previous, ...rest }) => {
       // A fetch already on its way would land with the old state and wipe the
       // change out. That includes a list loading its next page: the page is
       // joined onto the rows as they were when the fetch began, not as they are
@@ -229,7 +248,7 @@ export function useThreadAction(action, { onError } = {}) {
       const captured = captureThreads(queryClient, ids);
       if (previous) restoreThreads(queryClient, previous);
       const targets = new Set(ids);
-      updateCachedThreads(queryClient, (thread) => (targets.has(thread.id) ? LOCAL_CHANGE[action](thread) : thread));
+      updateCachedThreads(queryClient, (thread) => (targets.has(thread.id) ? LOCAL_CHANGE[action](thread, rest) : thread));
       return { captured };
     },
     onError: (error, variables, context) => {

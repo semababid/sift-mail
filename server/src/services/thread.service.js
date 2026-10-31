@@ -2,11 +2,12 @@ import mongoose from 'mongoose';
 import { Thread, Message, Label } from '../models/index.js';
 import { decodeCursor, encodeCursor } from '../lib/cursor.js';
 import { HttpError, notFound } from '../lib/errors.js';
-import { HIDDEN_FROM_LABELS, LABEL_ACTIONS } from '../lib/constants.js';
+import { HIDDEN_FROM_LABELS, INTENTS, LABEL_ACTIONS, TRIAGE_FOLDERS } from '../lib/constants.js';
 import { refreshThread } from './thread-summary.js';
 
-export async function listThreads(userId, { folder, label, limit, cursor }) {
+export async function listThreads(userId, { folder, label, bucket, limit, cursor }) {
   const filter = { userId };
+  if (bucket) filter.bucket = bucket;
 
   if (label) {
     filter.labelIds = new mongoose.Types.ObjectId(label);
@@ -67,6 +68,24 @@ async function newestPerThread(userId, threadIds, { allowDrafts }) {
   return rows.map((row) => row.messageId);
 }
 
+// The newest received message in each thread, which is the one whose bucket
+// is the conversation's. A thread with none, all its mail sent by its owner,
+// has no bucket to change.
+async function newestReceivedPerThread(userId, threadIds) {
+  const rows = await Message.aggregate([
+    { $match: { userId, threadId: { $in: threadIds }, isDraft: false, folder: { $in: TRIAGE_FOLDERS } } },
+    { $sort: { threadId: 1, sentAt: -1, _id: -1 } },
+    { $group: { _id: '$threadId', messageId: { $first: '$_id' } } },
+  ]);
+  return rows.map((row) => row.messageId);
+}
+
+// How many conversations of a folder are in each bucket.
+export async function countBuckets(userId, { folder }) {
+  const counts = await Promise.all(INTENTS.map((bucket) => Thread.countDocuments({ userId, folders: folder, bucket })));
+  return Object.fromEntries(INTENTS.map((bucket, i) => [bucket, counts[i]]));
+}
+
 // Back in the order they were asked for, which is the order the client is
 // showing them in.
 function inRequestOrder(requested, threads) {
@@ -74,7 +93,7 @@ function inRequestOrder(requested, threads) {
   return requested.map((id) => byId.get(String(id))).filter(Boolean);
 }
 
-export async function applyThreadAction(userId, ids, action, { labelId } = {}) {
+export async function applyThreadAction(userId, ids, action, { labelId, bucket } = {}) {
   const requested = [...new Set(ids)];
 
   // A label that is not the user's is an error rather than something to skip.
@@ -142,6 +161,35 @@ export async function applyThreadAction(userId, ids, action, { labelId } = {}) {
       await Message.updateMany({ ...inThreads, folder: { $ne: 'trash' } }, [
         { $set: { trashedFrom: '$folder', folder: 'trash' } },
       ]);
+      break;
+    case 'setBucket':
+      // On the message that decides the conversation's bucket. What the model
+      // said is kept in modelLabel; mail it sorted before modelLabel existed
+      // has it in label alone, so it is copied over first.
+      await Message.updateMany({ _id: { $in: await newestReceivedPerThread(userId, threadIds) } }, [
+        {
+          $set: {
+            'intent.modelLabel': {
+              $ifNull: ['$intent.modelLabel', { $cond: [{ $eq: ['$intent.source', 'model'] }, '$intent.label', null] }],
+            },
+          },
+        },
+        { $set: { 'intent.label': bucket, 'intent.source': 'user' } },
+      ]);
+      break;
+    case 'resetBucket':
+      // Back to what the model said, or to no bucket where it has not looked.
+      await Message.updateMany(
+        { _id: { $in: await newestReceivedPerThread(userId, threadIds) }, 'intent.source': 'user' },
+        [
+          {
+            $set: {
+              'intent.label': '$intent.modelLabel',
+              'intent.source': { $cond: [{ $eq: [{ $ifNull: ['$intent.modelLabel', null] }, null] }, 'default', 'model'] },
+            },
+          },
+        ],
+      );
       break;
     case 'restore':
       await Message.updateMany({ ...inThreads, folder: 'trash' }, [

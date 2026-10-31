@@ -5,6 +5,7 @@ import { useSignedInUser } from '../auth/guards.jsx';
 import Skeleton from '../../components/skeleton.jsx';
 import StarButton from '../../components/star-button.jsx';
 import { conversationWith, listDate } from '../../lib/format.js';
+import { BucketBadge, bucketName, DRAG_TYPE } from './buckets.jsx';
 
 // Every row is the same height, so no row has to be measured and a scroll
 // position maps straight to a row.
@@ -23,6 +24,9 @@ const PLACEHOLDER_ROWS = 8;
 // Search adds to it: `actions` beside the title, a `note` under it, and with
 // `detail` one more line on every row, as { height, show, say }: the row
 // height that leaves room for it, the line itself, and the same in words.
+// The inbox adds `showBuckets`, a label on each row with its bucket, and
+// `dragIds`, which makes rows draggable and says which conversations a drag
+// that starts on a row carries.
 export default function ThreadList({
   title,
   emptyText,
@@ -37,6 +41,8 @@ export default function ThreadList({
   actions = null,
   note = null,
   detail = null,
+  showBuckets = false,
+  dragIds = null,
 }) {
   const rowHeight = detail?.height ?? ROW_HEIGHT;
   const user = useSignedInUser();
@@ -135,6 +141,8 @@ export default function ThreadList({
                       checked={checked}
                       selfAddress={user.email}
                       detail={detail}
+                      showBucket={showBuckets}
+                      dragIds={dragIds}
                     />
                     <StarButton
                       label={`Star ${subject}`}
@@ -160,7 +168,7 @@ export default function ThreadList({
   );
 }
 
-function ThreadRow({ thread, to, open, checked, selfAddress, detail }) {
+function ThreadRow({ thread, to, open, checked, selfAddress, detail, showBucket, dragIds }) {
   const unread = thread.hasUnread;
   const strong = unread ? 'font-semibold text-stone-900' : '';
   const who = conversationWith(thread.participants, selfAddress);
@@ -175,6 +183,7 @@ function ThreadRow({ thread, to, open, checked, selfAddress, detail }) {
     thread.isStarred && 'starred',
     thread.messageCount > 1 ? `${who}, ${thread.messageCount} messages` : who,
     subject,
+    showBucket && bucketName(thread.bucket),
     date,
     detail?.say(thread),
   ]
@@ -188,6 +197,14 @@ function ThreadRow({ thread, to, open, checked, selfAddress, detail }) {
       to={to}
       aria-label={spoken}
       aria-current={open ? 'true' : undefined}
+      // A link is draggable anyway, carrying its address. A row that can be
+      // moved carries its conversations as well, for a bucket tab to take.
+      {...(dragIds && {
+        onDragStart: (event) => {
+          event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(dragIds(thread.id)));
+          event.dataTransfer.effectAllowed = 'copyMove';
+        },
+      })}
       className={`flex h-full flex-col justify-center gap-0.5 border-b border-stone-100 pr-4 pl-10 text-sm outline-none focus-visible:ring-2 focus-visible:ring-sky-300 focus-visible:ring-inset ${background}`}
     >
       <span className="flex items-baseline gap-2">
@@ -199,7 +216,10 @@ function ThreadRow({ thread, to, open, checked, selfAddress, detail }) {
           {date}
         </time>
       </span>
-      <span className={`truncate ${strong || 'text-stone-700'}`}>{subject}</span>
+      <span className={`truncate ${strong || 'text-stone-700'}`}>
+        {showBucket && <BucketBadge bucket={thread.bucket} />}
+        {subject}
+      </span>
       {/* Room on the right for the star button over this line. */}
       <span className="truncate pr-6 text-stone-500">{thread.snippet}</span>
       {detail?.show(thread)}

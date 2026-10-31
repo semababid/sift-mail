@@ -8,6 +8,7 @@ export const SHORTCUTS = [
   { keys: ['e'], description: 'Archive the selection, or the open conversation' },
   { keys: ['z'], description: 'Undo the last archive' },
   { keys: ['s'], description: 'Star or unstar the selection, or the open conversation' },
+  { keys: ['1', '2', '3', '4'], description: 'Move the selection, or the open conversation, to Needs reply, Waiting, To do or Read only' },
   { keys: ['c'], description: 'Write a new message' },
   { keys: ['r'], description: 'Reply to the open conversation' },
   { keys: ['a'], description: 'Reply to everyone on it' },
@@ -37,7 +38,7 @@ export default function ShortcutHelp({ onClose }) {
       <dl className="mt-5 space-y-2.5 text-sm">
         {SHORTCUTS.map(({ keys, description }) => (
           <div key={description} className="flex items-center gap-4">
-            <dt className="flex w-24 shrink-0 gap-1">
+            <dt className="flex w-28 shrink-0 gap-1">
               {keys.map((key) => (
                 <kbd key={key} className="min-w-6 rounded border border-stone-300 bg-stone-50 px-1.5 text-center text-xs">
                   {key}

@@ -9,12 +9,14 @@ import SearchBox from '../features/mail/search-box.jsx';
 import CommandPalette from '../features/mail/command-palette.jsx';
 import ShortcutHelp from '../features/mail/shortcut-help.jsx';
 import { SCORED_ROW_HEIGHT, ScoreLine, ScoresToggle, SearchNote, spokenScores } from '../features/mail/search-scores.jsx';
+import { BUCKETS, BucketTabs, bucketName } from '../features/mail/buckets.jsx';
 import ComposeWindow from '../features/compose/compose-window.jsx';
 import { quoteMessage, replyRecipients, replySubject } from '../features/compose/reply.js';
 import { FOLDERS, folderName } from '../features/mail/folders.js';
 import {
   captureThreads,
   useArchive,
+  useBucketCounts,
   useLabels,
   useMoveToInbox,
   useSearch,
@@ -33,6 +35,14 @@ const NOTICE_MS = 4000;
 const UNDO_MS = 8000;
 const noop = () => {};
 const COMPOSE_NOTICES = { sent: 'Message sent.', saved: 'Draft saved.', discarded: 'Draft discarded.' };
+
+// What an empty bucket tab says.
+const EMPTY_BUCKETS = {
+  needs_reply: 'Nothing is waiting for a reply from you.',
+  waiting_on_them: 'Nothing is waiting on anyone else.',
+  do_at_a_time: 'Nothing to do.',
+  read_only: 'Nothing just to read.',
+};
 
 // The score line under each search result.
 const SCORE_DETAIL = {
@@ -87,15 +97,25 @@ export default function Mailbox({ mode }) {
   });
 
   const query = mode === 'search' ? (searchParams.get('q') ?? '').trim() : '';
+  // The inbox shows one bucket at a time when the address names one. An
+  // unknown name shows the whole inbox, as if there were none.
+  const inbox = mode === 'folder' && folder === 'inbox';
+  const wanted = inbox ? searchParams.get('bucket') : null;
+  const bucket = BUCKETS.some((entry) => entry.id === wanted) ? wanted : null;
   const label = mode === 'label' ? labels.data?.find((candidate) => candidate.id === labelId) : null;
   const notFound = mode === 'folder' ? !folderName(folder) : mode === 'label' && labels.isSuccess && !label;
 
   const basePath = { folder: `/${folder}`, label: `/label/${labelId}`, search: '/search' }[mode];
-  const suffix = query ? `?q=${encodeURIComponent(query)}` : '';
+  const suffix = query ? `?q=${encodeURIComponent(query)}` : bucket ? `?bucket=${bucket}` : '';
   const listPath = basePath + suffix;
   const threadPath = (id) => `${basePath}/${id}${suffix}`;
 
-  const threadList = useThreadList(mode === 'folder' && !notFound ? { folder } : label ? { label: labelId } : null);
+  const threadList = useThreadList(
+    mode === 'folder' && !notFound ? { folder, ...(bucket && { bucket }) } : label ? { label: labelId } : null,
+  );
+  const bucketCounts = useBucketCounts('inbox', { enabled: inbox });
+  const setBucket = useThreadAction('setBucket');
+  const resetBucket = useThreadAction('resetBucket');
   // Whether search results show how they were scored. Kept across reloads,
   // as a setting for whoever is looking into the ranking.
   const [showScores, setShowScores] = useStoredFlag('sift.searchScores');
@@ -219,14 +239,7 @@ export default function Mailbox({ mode }) {
     const targets = known.filter((thread) => thread.folders.includes('inbox')).map((thread) => thread.id);
     if (targets.length === 0) return say('Only conversations in the inbox can be archived.');
 
-    // When the open conversation is archived, the next one down takes its
-    // place, skipping any archived with it, or the nearest one above.
-    const closing = targets.includes(threadId);
-    const staying = (thread) => !targets.includes(thread.id);
-    const after = closing
-      ? (threads.slice(openIndex + 1).find(staying) ?? threads.slice(0, openIndex).reverse().find(staying))
-      : null;
-    const reopen = closing ? threadPath(threadId) : null;
+    const { closing, after, reopen } = leaving(targets);
 
     // Taken before the rows leave the list, so Undo can put them back where they were.
     const previousRows = captureThreads(queryClient, targets);
@@ -245,6 +258,86 @@ export default function Mailbox({ mode }) {
       // Pulling them away from somewhere they have gone since would be worse.
       if (closing && openNow.current === after?.id) navigate(reopen, { replace: true });
     });
+  }
+
+  // When the open conversation leaves the list, the next one down takes its
+  // place, skipping any leaving with it, or the nearest one above. Answers
+  // where to go, and how to get back to it for an undo.
+  function leaving(ids) {
+    const closing = ids.includes(threadId);
+    const staying = (thread) => !ids.includes(thread.id);
+    const after = closing
+      ? (threads.slice(openIndex + 1).find(staying) ?? threads.slice(0, openIndex).reverse().find(staying))
+      : null;
+    return { closing, after, reopen: closing ? threadPath(threadId) : null };
+  }
+
+  // Puts conversations in a bucket, as the user's choice. In a bucket tab,
+  // those moved elsewhere leave the list, the way archived ones leave the inbox.
+  function moveToBucket(ids, target) {
+    const known = ids
+      .map((id) => threads.find((thread) => thread.id === id) ?? (conversation.data?.thread.id === id ? conversation.data.thread : null))
+      .filter(Boolean);
+    if (known.length === 0) return say('Open or select a conversation to move it.');
+    const moving = known.map((thread) => thread.id);
+
+    // Where each was, for an undo: the user's own choice is put back as it
+    // was, and the model's by taking the user's choice away again.
+    const before = known.map((thread) => ({ id: thread.id, bucket: thread.bucket, source: thread.bucketSource }));
+    const { closing, after, reopen } = leaving(bucket && bucket !== target ? moving : []);
+    const previousRows = captureThreads(queryClient, moving);
+    const moved = setBucket.mutateAsync({ ids: moving, bucket: target });
+
+    clearSelection();
+    if (closing) navigate(after ? threadPath(after.id) : listPath, { replace: true });
+    const name = bucketName(target);
+    say(
+      moving.length === 1 ? `Moved to ${name}.` : `${moving.length} conversations moved to ${name}.`,
+      () => undoMove(before, reopen, moved, previousRows),
+    );
+
+    moved.catch(() => {
+      say('Sift could not move that, so it is back where it was.');
+      if (closing && openNow.current === after?.id) navigate(reopen, { replace: true });
+    });
+  }
+
+  const moveTargets = (target) => moveToBucket(targetThreads().map((thread) => thread.id), target);
+
+  // Takes the user's choice of bucket away, so the model's stands again, for
+  // after the undo has gone.
+  function letSiftChoose() {
+    const chosen = targetThreads().filter((thread) => thread.bucketSource === 'user');
+    if (chosen.length === 0) return say('Sift already chooses the bucket for that.');
+    resetBucket.mutateAsync({ ids: chosen.map((thread) => thread.id) }).then(
+      () => say(chosen.length === 1 ? 'Sift chooses the bucket again.' : `Sift chooses the bucket again for ${chosen.length} conversations.`),
+      () => say('Sift could not change that.'),
+    );
+  }
+
+  // As undoArchive: waits for the move to land first, then puts each
+  // conversation back the way it was.
+  async function undoMove(before, reopen, moved, previousRows) {
+    setNotice(null);
+    try {
+      await moved;
+    } catch {
+      return;
+    }
+    if (reopen) navigate(reopen, { replace: true });
+
+    const groups = [];
+    const reset = before.filter((entry) => entry.source !== 'user').map((entry) => entry.id);
+    if (reset.length > 0) groups.push((previous) => resetBucket.mutateAsync({ ids: reset, previous }));
+    for (const target of new Set(before.filter((entry) => entry.source === 'user').map((entry) => entry.bucket))) {
+      const ids = before.filter((entry) => entry.source === 'user' && entry.bucket === target).map((entry) => entry.id);
+      groups.push((previous) => setBucket.mutateAsync({ ids, bucket: target, previous }));
+    }
+    // The rows are put back in place once, by the first call.
+    Promise.all(groups.map((send, i) => send(i === 0 ? previousRows : undefined))).then(
+      () => say(before.length === 1 ? 'Moved back.' : `${before.length} conversations moved back.`),
+      () => say('Sift could not undo that.'),
+    );
   }
 
   // Waits for the archive to reach the server before moving anything back. Sent
@@ -343,6 +436,7 @@ export default function Mailbox({ mode }) {
       r: () => replyToOpen(),
       a: () => replyToOpen({ all: true }),
       '/': focusSearch,
+      ...Object.fromEntries(BUCKETS.map((entry) => [entry.key, () => moveTargets(entry.id)])),
       '?': () => setDialog('help'),
       Escape: escape,
       'mod+k': () => setDialog((open) => (open === 'palette' ? null : 'palette')),
@@ -367,6 +461,9 @@ export default function Mailbox({ mode }) {
     ...(notice?.undo ? [{ id: 'undo', title: 'Undo archive', keys: 'z', run: notice.undo }] : []),
     { id: 'select', title: 'Select conversation', keys: 'x', run: selectOpen },
     { id: 'search', title: 'Search mail', keys: '/', run: focusSearch },
+    ...BUCKETS.map((entry) => ({ id: `move-${entry.id}`, title: `Move to ${entry.name}`, keys: entry.key, run: () => moveTargets(entry.id) })),
+    ...BUCKETS.map((entry) => ({ id: `show-${entry.id}`, title: `Show ${entry.name}`, run: () => navigate(`/inbox?bucket=${entry.id}`) })),
+    { id: 'let-sift-choose', title: 'Let Sift choose the bucket', run: letSiftChoose },
     ...(mode === 'search'
       ? [{ id: 'scores', title: showScores ? 'Hide search scores' : 'Show search scores', run: () => setShowScores(!showScores) }]
       : []),
@@ -382,13 +479,15 @@ export default function Mailbox({ mode }) {
 
   if (notFound) return <NotFound />;
 
-  const title = mode === 'search' ? 'Search results' : mode === 'label' ? label?.name : folderName(folder);
+  const title = mode === 'search' ? 'Search results' : mode === 'label' ? label?.name : bucket ? bucketName(bucket) : folderName(folder);
   const [emptyText, emptyHint] =
     mode === 'search'
       ? [`No conversations match "${query}".`, 'Try other words, or fewer of them.']
       : mode === 'label'
         ? ['No conversations with this label.', null]
-        : EMPTY_FOLDERS[folder];
+        : bucket
+          ? [EMPTY_BUCKETS[bucket], 'Drag a conversation onto this tab, or press its number, to put it here.']
+          : EMPTY_FOLDERS[folder];
 
   let listContent;
   if (mode === 'label' && !label) {
@@ -423,6 +522,14 @@ export default function Mailbox({ mode }) {
         selectedIds={selectedIds}
         onToggleSelect={toggleSelected}
         onToggleStar={toggleStar}
+        {...(inbox && {
+          note: (
+            <BucketTabs basePath="/inbox" active={bucket} counts={bucketCounts.data} onDrop={(ids, target) => moveToBucket(ids, target)} />
+          ),
+          showBuckets: !bucket,
+          // A drag from a selected row carries the whole selection.
+          dragIds: (id) => (selectedIds.includes(id) ? selectedIds : [id]),
+        })}
         {...(mode === 'search' && {
           actions: <ScoresToggle on={showScores} onToggle={() => setShowScores(!showScores)} />,
           note: <SearchNote mode={search.data?.mode} vectorUnavailable={search.data?.vectorUnavailable} showScores={showScores} />,
