@@ -80,7 +80,8 @@ export function BucketBadge({ bucket }) {
 const RECEIVED = ['inbox', 'archive'];
 
 // Why the open conversation is in its bucket, under its subject: the model's
-// reason and how sure it was, or that the user put it there.
+// reason, how sure it was and whether it had the user's own sorting to go
+// by, or that the user put it there.
 export function BucketNote({ thread, messages }) {
   if (!thread.bucket) return null;
   const decided = messages.filter((m) => RECEIVED.includes(m.folder) && !m.isDraft && m.intent?.label).at(-1);
@@ -93,7 +94,9 @@ export function BucketNote({ thread, messages }) {
     why = 'Sift said it needed a reply, and you have replied since.';
   } else if (decided?.intent.reason) {
     const sure = decided.intent.confidence == null ? '' : ` (${Math.round(decided.intent.confidence * 100)}% sure)`;
-    why = `Sift: ${decided.intent.reason}${sure}`;
+    const seen = decided.intent.examples?.length ?? 0;
+    const like = seen === 0 ? '' : ` Going by ${seen === 1 ? 'a message' : `${seen} messages`} like it that you sorted.`;
+    why = `Sift: ${decided.intent.reason}${sure}${like}`;
   }
 
   return (

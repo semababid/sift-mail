@@ -4,6 +4,7 @@ import { decodeCursor, encodeCursor } from '../lib/cursor.js';
 import { HttpError, notFound } from '../lib/errors.js';
 import { HIDDEN_FROM_LABELS, INTENTS, LABEL_ACTIONS, TRIAGE_FOLDERS } from '../lib/constants.js';
 import { refreshThread } from './thread-summary.js';
+import { recordCorrections, withdrawCorrections } from './triage/corrections.js';
 
 export async function listThreads(userId, { folder, label, bucket, limit, cursor }) {
   const filter = { userId };
@@ -162,11 +163,13 @@ export async function applyThreadAction(userId, ids, action, { labelId, bucket }
         { $set: { trashedFrom: '$folder', folder: 'trash' } },
       ]);
       break;
-    case 'setBucket':
+    case 'setBucket': {
       // On the message that decides the conversation's bucket. What the model
       // said is kept in modelLabel; mail it sorted before modelLabel existed
-      // has it in label alone, so it is copied over first.
-      await Message.updateMany({ _id: { $in: await newestReceivedPerThread(userId, threadIds) } }, [
+      // has it in label alone, so it is copied over first. The choice is
+      // stored as a correction too, for the model to learn from.
+      const decided = await newestReceivedPerThread(userId, threadIds);
+      await Message.updateMany({ _id: { $in: decided } }, [
         {
           $set: {
             'intent.modelLabel': {
@@ -176,11 +179,16 @@ export async function applyThreadAction(userId, ids, action, { labelId, bucket }
         },
         { $set: { 'intent.label': bucket, 'intent.source': 'user' } },
       ]);
+      await recordCorrections(userId, decided, bucket);
       break;
-    case 'resetBucket':
+    }
+    case 'resetBucket': {
       // Back to what the model said, or to no bucket where it has not looked.
+      // The correction goes with it, so the model stops learning from a
+      // choice the user took back.
+      const decided = await newestReceivedPerThread(userId, threadIds);
       await Message.updateMany(
-        { _id: { $in: await newestReceivedPerThread(userId, threadIds) }, 'intent.source': 'user' },
+        { _id: { $in: decided }, 'intent.source': 'user' },
         [
           {
             $set: {
@@ -190,7 +198,9 @@ export async function applyThreadAction(userId, ids, action, { labelId, bucket }
           },
         ],
       );
+      await withdrawCorrections(userId, decided);
       break;
+    }
     case 'restore':
       await Message.updateMany({ ...inThreads, folder: 'trash' }, [
         { $set: { folder: { $ifNull: ['$trashedFrom', 'inbox'] }, trashedFrom: null } },

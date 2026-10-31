@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { AiError } from '../src/services/ai/index.js';
 import {
   classifyMessage,
+  EXAMPLE_BODY_CHARS,
   labelConfidence,
   readAnswer,
   TRIAGE_BODY_CHARS,
   TRIAGE_FORMAT,
   triageEmail,
   triagePrompt,
+  triageQuestion,
 } from '../src/services/triage/classify.js';
 
 const user = { name: 'Semab', email: 'semab@sift.example' };
@@ -82,6 +84,46 @@ describe('what the model is given', () => {
     const email = triageEmail({ from: mara, to: [me], subject: '', bodyText: 'ü'.repeat(TRIAGE_BODY_CHARS + 500) });
     expect(email).toContain('Subject: (no subject)');
     expect(email.match(/ü+/)[0]).toHaveLength(TRIAGE_BODY_CHARS);
+  });
+});
+
+describe('examples from the user’s corrections', () => {
+  const example = (subject, label, bodyText = 'Text') => ({ message: { from: mara, to: [me], subject, bodyText }, label });
+
+  it('are explained in the prompt only when there are some', () => {
+    expect(triagePrompt(user)).not.toContain('<example>');
+    const prompt = triagePrompt(user, { examples: true });
+    expect(prompt.startsWith(triagePrompt(user))).toBe(true);
+    expect(prompt).toContain('sorted by hand by Semab, each between <example> and </example>');
+    expect(triagePrompt({ email: 'anon@sift.example' }, { examples: true })).toContain('sorted by hand by them,');
+  });
+
+  it('come before the message, each with the bucket it was put in', () => {
+    const question = triageQuestion(message, { examples: [example('Kino Freitag?', 'needs_reply'), example('Newsletter', 'read_only')] });
+    expect(question).toBe(
+      [
+        `<example>\n${triageEmail(example('Kino Freitag?').message)}\nSorted by hand into: needs_reply\n</example>`,
+        `<example>\n${triageEmail(example('Newsletter').message)}\nSorted by hand into: read_only\n</example>`,
+        triageEmail(message),
+      ].join('\n\n'),
+    );
+    expect(triageQuestion(message)).toBe(triageEmail(message));
+  });
+
+  it('are cut shorter than the message being sorted', () => {
+    const long = 'ü'.repeat(TRIAGE_BODY_CHARS);
+    const question = triageQuestion({ ...message, bodyText: long }, { examples: [example('Lang', 'read_only', long)] });
+    const [shown, sorted] = question.match(/ü+/g);
+    expect(shown).toHaveLength(EXAMPLE_BODY_CHARS);
+    expect(sorted).toHaveLength(TRIAGE_BODY_CHARS);
+  });
+
+  it('are what the model is asked with', async () => {
+    const ai = scriptedAi({ text: json('needs_reply') });
+    const examples = [example('Kino Freitag?', 'needs_reply')];
+    await classifyMessage(message, { user, examples, ai });
+    expect(ai.calls[0].system).toBe(triagePrompt(user, { examples: true }));
+    expect(ai.calls[0].messages).toEqual([{ role: 'user', content: triageQuestion(message, { examples }) }]);
   });
 });
 

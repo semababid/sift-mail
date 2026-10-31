@@ -73,6 +73,8 @@ Received mail is also sorted into triage buckets by the chat model, as it arrive
 npm run triage:backfill --workspace=server
 ```
 
+Moving a conversation to another bucket is stored as a correction. Mail that arrives afterwards is sorted with the corrections most like it shown to the model as examples, so the model picks up how you sort. Mail already sorted stays where it is. A database set up before corrections existed needs `npm run indexes` once more, because the corrections changed an index.
+
 The tests for vector search need a real cluster. They read `MONGO_URI_ATLAS` and work in a database of their own, `sift_atlas_test`, which they empty when they finish:
 
 ```bash

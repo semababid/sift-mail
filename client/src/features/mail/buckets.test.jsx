@@ -356,6 +356,19 @@ describe('why a conversation is in its bucket', () => {
       makeMessage(thread, { intent: { label: 'needs_reply', confidence: 0.934, reason: 'Mara asks whether Semab is free.', source: 'model' } }),
     ]);
     expect(pane).toHaveTextContent('Needs replySift: Mara asks whether Semab is free. (93% sure)');
+    expect(pane).not.toHaveTextContent('you sorted');
+  });
+
+  it('says when the model went by mail the user sorted', async () => {
+    const thread = makeThread({ subject: 'Rabatt', bucket: 'read_only', bucketSource: 'model' });
+    const intent = { label: 'read_only', confidence: 0.97, reason: 'An advert.', source: 'model' };
+    const pane = await open(thread, [makeMessage(thread, { intent: { ...intent, examples: ['a', 'b'] } })]);
+    expect(pane).toHaveTextContent('Sift: An advert. (97% sure) Going by 2 messages like it that you sorted.');
+
+    const other = makeThread({ subject: 'Noch ein Rabatt', bucket: 'read_only', bucketSource: 'model' });
+    serve({ threads: [other], messages: { [other.id]: [makeMessage(other, { intent: { ...intent, examples: ['a'] } })] } });
+    renderApp(`/inbox/${other.id}`);
+    expect(await screen.findByText(/Going by a message like it that you sorted\./)).toBeInTheDocument();
   });
 
   it('says when the user put it there', async () => {

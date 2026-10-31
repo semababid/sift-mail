@@ -121,6 +121,9 @@ const messageSchema = new mongoose.Schema(
     // the model said, kept when the user moves the message, so the move can be
     // undone and the correction learnt from. `confidence` is the model's
     // probability for its bucket and `reason` its few words on why.
+    // `examples` are the messages the user sorted by hand that the model was
+    // shown as examples, the ones most like this one (stage 6.4); empty when
+    // it sorted the message zero-shot, and missing on mail sorted before.
     // `classifiedAt` stays null until the model has looked, which is how the
     // backfill finds what it has not.
     intent: {
@@ -130,6 +133,7 @@ const messageSchema = new mongoose.Schema(
       reason: { type: String, default: null },
       model: { type: String, default: null },
       source: { type: String, enum: INTENT_SOURCES, default: 'default' },
+      examples: { type: [mongoose.Schema.Types.ObjectId], default: undefined },
       classifiedAt: { type: Date, default: null },
     },
   },
