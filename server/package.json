@@ -17,6 +17,8 @@
     "test:atlas": "vitest run --config vitest.atlas.config.js",
     "eval:search": "node scripts/search-eval.js",
     "eval:embeddings": "node scripts/embedding-eval.js",
+    "eval:label": "node scripts/triage-label.js",
+    "eval:triage": "node scripts/triage-eval.js",
     "smtp:check": "node scripts/smtp-check.js",
     "sync": "node scripts/imap-sync.js",
     "ai:check": "node scripts/ai-check.js",

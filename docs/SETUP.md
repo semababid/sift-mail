@@ -75,6 +75,18 @@ npm run triage:backfill --workspace=server
 
 Moving a conversation to another bucket is stored as a correction. Mail that arrives afterwards is sorted with the corrections most like it shown to the model as examples, so the model picks up how you sort. Mail already sorted stays where it is. A database set up before corrections existed needs `npm run indexes` once more, because the corrections changed an index.
 
+How well triage sorts is measured against 200 received messages labelled by hand. The labeller picks them itself and shows them one at a time in the terminal: keys 1 to 4 choose a bucket, s skips, u undoes, q stops, and the next run carries on where it stopped. Seeded mail opens with the seeder's bucket chosen, and Enter keeps it; add `--blind` to choose every bucket yourself.
+
+```bash
+npm run eval:label --workspace=server
+```
+
+The eval then prints the accuracy per bucket zero-shot, and again after 10, 25 and 50 of the model's mistakes have been corrected. Each message is sorted with corrections drawn from the other messages only, never from itself. It takes the chat model about ten minutes and writes nothing to the database:
+
+```bash
+npm run eval:triage --workspace=server
+```
+
 The tests for vector search need a real cluster. They read `MONGO_URI_ATLAS` and work in a database of their own, `sift_atlas_test`, which they empty when they finish:
 
 ```bash

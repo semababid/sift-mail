@@ -3,20 +3,29 @@ import { toJSON } from './plugins.js';
 import { INTENTS } from '../lib/constants.js';
 
 // What a message's triage bucket really is, as opposed to what the classifier
-// guessed. Two sources: the seeder, which knows the bucket it wrote each
-// conversation for, and the user, who moves a conversation to a bucket in the
-// inbox (stage 6.3). The user's are the corrections the classifier is shown
-// as examples (stage 6.4), and both are what the evaluation scores against,
-// which is why they share a collection.
+// guessed. Three sources:
+//   seed  the bucket the seeder wrote each conversation for
+//   user  a move in the inbox (stage 6.3), which the classifier is shown as
+//         an example from then on (stage 6.4)
+//   eval  a label given by hand for the evaluation (stage 6.5), one message
+//         at a time. The seeder's buckets are per conversation, and wrong for
+//         some of its messages, so they are not what accuracy is scored on.
 //
 // A message can have one of each. Taking a move back deletes the user's
-// label, and the seed's has to still be there afterwards.
+// label, and the others have to still be there afterwards.
+function needsLabel() {
+  return !(this.source === 'eval' && this.skipped);
+}
+
 const intentLabelSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     messageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Message', required: true },
-    label: { type: String, enum: INTENTS, required: true },
-    source: { type: String, enum: ['seed', 'user'], required: true },
+    // Required, except on an eval label for a message that was skipped,
+    // which is kept so the labeller does not offer it again.
+    label: { type: String, enum: INTENTS, required: [needsLabel, 'a label needs a bucket unless it was skipped'] },
+    source: { type: String, enum: ['seed', 'user', 'eval'], required: true },
+    skipped: { type: Boolean, default: undefined },
   },
   { timestamps: true },
 );
